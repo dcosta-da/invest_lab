@@ -24,60 +24,82 @@ MACD_SIGNAL_PERIOD = 9
 WEEKS_PER_MONTH = 4.33
 WEEKS_PER_YEAR = 52
 
-# --- Fonction de Calcul pour l'Analyse DuPont ---
+# --- NOUVELLES FONCTIONS D'AIDE LTM / T0-T4 ---
+
+def get_ltm_sum(q_data: pd.DataFrame, key: str) -> float:
+    """Somme les 4 derniers trimestres (LTM) pour un élément de flux (Income/Cash Flow)."""
+    if key not in q_data.index:
+        # Gère 'Total Revenue' vs 'Total Revenues'
+        if key == 'Total Revenue' and 'Total Revenues' in q_data.index:
+            key = 'Total Revenues'
+        else:
+            # Pour les éléments optionnels ou manquants, renvoie 0.0 si moins de 4 trimestres ou clé absente.
+            if key in ['Income Tax Expense', 'Pretax Income', 'EBIT', 'Net Income']:
+                return 0.0 
+            raise KeyError(f"Donnée financière LTM manquante: {key}")
+            
+    if len(q_data.columns) < 4:
+        raise ValueError("Données trimestrielles insuffisantes (moins de 4) pour le calcul LTM.")
+
+    # Somme des 4 dernières colonnes (iloc[0] à iloc[3])
+    return q_data.loc[key].iloc[0:4].sum()
+
+def get_balance_value(q_balance: pd.DataFrame, key: str, index: int = 0, default_val: float = 0.0) -> float:
+    """Récupère une valeur de bilan spécifique à un index (0=T0, 4=T-4)."""
+    if key not in q_balance.index:
+        # Pour les intérêts minoritaires optionnels
+        if key in ['Minority Interest', 'Non Controlling Interest']:
+            return default_val
+        raise KeyError(f"Donnée de bilan manquante: {key}")
+        
+    if len(q_balance.columns) <= index:
+        raise ValueError(f"Données de bilan insuffisantes (moins de {index+1} trimestres) pour obtenir l'index {index}.")
+    
+    return q_balance.loc[key].iloc[index]
+
+
+# --- FONCTION DE CALCUL POUR L'ANALYSE DUPONT (ROE LTM) ---
 def calculate_dupont(q_financials: pd.DataFrame, q_balance: pd.DataFrame) -> dict | None:
     """
-    Calcule l'analyse DuPont (ROE) à partir des données financières trimestrielles de yfinance.
-    Utilise les deux trimestres les plus récents de la Balance Sheet pour calculer les moyennes.
+    Calcule l'analyse DuPont (ROE) en utilisant les données LTM.
+    Les moyennes du bilan sont basées sur le dernier trimestre (T0) et T-4 (il y a 12 mois).
     """
+    # Nécessite 4 Q de financials (LTM) et 5 Q de balance (T0 et T-4)
+    if q_financials.empty or q_balance.empty or len(q_financials.columns) < 4 or len(q_balance.columns) < 5:
+        return None
+
     try:
-        if q_financials.empty or q_balance.empty or len(q_balance.columns) < 2:
-            return None
+        # 1. Extraction des Données LTM (Flux)
+        ltm_revenu = get_ltm_sum(q_financials, 'Total Revenue')
+        ltm_resultat_net = get_ltm_sum(q_financials, 'Net Income')
+        
+        # 2. Extraction des Bilans T0 et T-4 (Stock)
+        actifs_t0 = get_balance_value(q_balance, 'Total Assets', index=0)
+        actifs_t4 = get_balance_value(q_balance, 'Total Assets', index=4)
+        capitaux_propres_t0 = get_balance_value(q_balance, 'Common Stock Equity', index=0)
+        capitaux_propres_t4 = get_balance_value(q_balance, 'Common Stock Equity', index=4)
 
-        # Helper function pour récupérer la valeur en gérant les clés alternatives (Revenues)
-        def get_value(series: Series, key: str):
-            if key in series.index:
-                return series.loc[key]
-            if key == 'Total Revenue' and 'Total Revenues' in series.index:
-                return series.loc['Total Revenues']
-            raise KeyError(key)
-
-        # T0: Dernier Trimestre connu (colonne 0)
-        q0_financials = q_financials.iloc[:, 0]
-        q0_balance = q_balance.iloc[:, 0]
-        
-        # T1: Trimestre Précédent (colonne 1), utilisé pour les moyennes (simplification de T-4)
-        q1_balance = q_balance.iloc[:, 1]
-        
-        # --- Extraction des Données ---
-        revenu_q0 = get_value(q0_financials, 'Total Revenue')
-        resultat_net_q0 = get_value(q0_financials, 'Net Income')
-        actifs_q0 = get_value(q0_balance, 'Total Assets')
-        capitaux_propres_q0 = get_value(q0_balance, 'Common Stock Equity')
-        
-        actifs_q1 = get_value(q1_balance, 'Total Assets')
-        capitaux_propres_q1 = get_value(q1_balance, 'Common Stock Equity')
-        
-    except KeyError as ke:
-        return {'error': f"Donnée financière manquante pour DuPont: {ke}"}
+    except (KeyError, ValueError) as ke:
+        return {'error': f"Donnée financière/bilan manquante ou insuffisante (LTM / T0-T-4) : {ke}"}
     except Exception as e:
-        return {'error': f"Erreur inattendue dans l'analyse DuPont: {e}"}
+        return {'error': f"Erreur inattendue dans l'analyse DuPont (LTM) : {e}"}
 
-    # --- Calcul des Moyennes (utilisant T0 et T1) ---
-    actifs_moyens = (actifs_q0 + actifs_q1) / 2
-    capitaux_propres_moyens = (capitaux_propres_q0 + capitaux_propres_q1) / 2
+    # --- Calcul des Moyennes (utilisant T0 et T-4) ---
+    actifs_moyens = (actifs_t0 + actifs_t4) / 2
+    capitaux_propres_moyens = (capitaux_propres_t0 + capitaux_propres_t4) / 2
 
     # Prévention de la division par zéro
-    if revenu_q0 == 0 or actifs_moyens == 0 or capitaux_propres_moyens == 0:
+    if ltm_revenu <= 0 or actifs_moyens <= 0 or capitaux_propres_moyens <= 0:
         return {
             'Marge_Nette': 0.0, 'Rotation_Actif': 0.0,
             'Multiplicateur_CE': 0.0, 'ROE': 0.0,
-            'Dates': q_balance.columns[0:2].strftime('%Y-%m-%d').tolist()
+            'Dates_LTM': q_financials.columns[0:4].strftime('%Y-%m-%d').tolist(),
+            'Dates_Bilan': [q_balance.columns[0].strftime('%Y-%m-%d'), q_balance.columns[4].strftime('%Y-%m-%d')]
         }
 
-    # --- Composantes DuPont ---
-    marge_nette = resultat_net_q0 / revenu_q0
-    rotation_actif = revenu_q0 / actifs_moyens
+    # --- Composantes DuPont (LTM) ---
+    marge_nette = ltm_resultat_net / ltm_revenu
+    rotation_actif = ltm_revenu / actifs_moyens
     multiplicateur_ce = actifs_moyens / capitaux_propres_moyens
     roe = marge_nette * rotation_actif * multiplicateur_ce
 
@@ -86,8 +108,82 @@ def calculate_dupont(q_financials: pd.DataFrame, q_balance: pd.DataFrame) -> dic
         'Rotation_Actif': rotation_actif,
         'Multiplicateur_CE': multiplicateur_ce,
         'ROE': roe,
-        'Dates': q_balance.columns[0:2].strftime('%Y-%m-%d').tolist()
+        'Dates_LTM': q_financials.columns[0:4].strftime('%Y-%m-%d').tolist(),
+        'Dates_Bilan': [q_balance.columns[0].strftime('%Y-%m-%d'), q_balance.columns[4].strftime('%Y-%m-%d')]
     }
+
+
+# --- FONCTION DE CALCUL POUR L'ANALYSE ROIC (LTM) ---
+def calculate_roic(q_financials: pd.DataFrame, q_balance: pd.DataFrame) -> dict | None:
+    """
+    Calcule la décomposition du ROIC (Return on Invested Capital) en utilisant les données LTM.
+    Le capital investi moyen est basé sur T0 et T-4.
+    """
+    # Nécessite 4 Q de financials (LTM) et 5 Q de balance (T0 et T-4)
+    if q_financials.empty or q_balance.empty or len(q_financials.columns) < 4 or len(q_balance.columns) < 5:
+        return None
+
+    try:
+        # 1. Extraction des Données LTM (Flux)
+        ltm_revenu = get_ltm_sum(q_financials, 'Total Revenue')
+        ltm_ebit = get_ltm_sum(q_financials, 'EBIT')
+        ltm_impots = get_ltm_sum(q_financials, 'Income Tax Expense')
+        ltm_pretax_income = get_ltm_sum(q_financials, 'Pretax Income')
+
+        # Calcul du NOPAT (LTM)
+        if ltm_pretax_income > 0 and ltm_ebit > 0:
+            taux_impot_ltm = ltm_impots / ltm_pretax_income
+        else:
+            taux_impot_ltm = 0.25 # Taux par défaut si le calcul est impossible.
+        
+        ltm_nopat = ltm_ebit * (1 - taux_impot_ltm)
+        
+        # 2. Extraction des Bilans T0 et T-4 pour Capital Investi (Stock)
+        # CI = Total Dette + Capitaux Propres + Intérêts Minoritaires
+        
+        # T0
+        total_dette_t0 = get_balance_value(q_balance, 'Total Debt', index=0)
+        capitaux_propres_t0 = get_balance_value(q_balance, 'Common Stock Equity', index=0)
+        interet_minoritaire_t0 = get_balance_value(q_balance, 'Minority Interest', index=0, default_val=0) 
+        
+        # T-4
+        total_dette_t4 = get_balance_value(q_balance, 'Total Debt', index=4)
+        capitaux_propres_t4 = get_balance_value(q_balance, 'Common Stock Equity', index=4)
+        interet_minoritaire_t4 = get_balance_value(q_balance, 'Minority Interest', index=4, default_val=0)
+        
+    except (KeyError, ValueError) as ke:
+        return {'error': f"Donnée financière/bilan manquante ou insuffisante (LTM / T0-T-4) : {ke}"}
+    except Exception as e:
+        return {'error': f"Erreur inattendue dans l'analyse ROIC (LTM) : {e}"}
+
+    # --- Calcul du Capital Investi Moyen (utilisant T0 et T-4) ---
+    capital_investi_t0 = total_dette_t0 + capitaux_propres_t0 + interet_minoritaire_t0
+    capital_investi_t4 = total_dette_t4 + capitaux_propres_t4 + interet_minoritaire_t4
+
+    capital_investi_moyen = (capital_investi_t0 + capital_investi_t4) / 2
+
+    # Prévention de la division par zéro
+    if ltm_revenu <= 0 or capital_investi_moyen <= 0:
+        return {
+            'Marge_NOPAT': 0.0, 'Rotation_CI': 0.0,
+            'ROIC': 0.0,
+            'Dates_LTM': q_financials.columns[0:4].strftime('%Y-%m-%d').tolist(),
+            'Dates_Bilan': [q_balance.columns[0].strftime('%Y-%m-%d'), q_balance.columns[4].strftime('%Y-%m-%d')]
+        }
+
+    # --- Composantes ROIC (LTM) ---
+    marge_nopat = ltm_nopat / ltm_revenu
+    rotation_ci = ltm_revenu / capital_investi_moyen
+    roic = marge_nopat * rotation_ci
+
+    return {
+        'Marge_NOPAT': marge_nopat,
+        'Rotation_CI': rotation_ci,
+        'ROIC': roic,
+        'Dates_LTM': q_financials.columns[0:4].strftime('%Y-%m-%d').tolist(),
+        'Dates_Bilan': [q_balance.columns[0].strftime('%Y-%m-%d'), q_balance.columns[4].strftime('%Y-%m-%d')]
+    }
+
 
 # --- Fonction Principale pour l'Application ---
 def run_app():
@@ -155,7 +251,7 @@ def run_app():
         company_name = company_info.get('longName', ticker_input)
         currency = company_info.get('currency', '$')
 
-        # Téléchargement des données de prix
+        # Téléchargement des données de prix (Code inchangé)
         with st.spinner(f"Téléchargement des données pour **{company_name}** ({ticker_input}) en intervalle **{interval}**..."):
             data = yf.download(ticker_input, start=start_date, end=end_date, auto_adjust=True, interval=interval)
 
@@ -165,7 +261,7 @@ def run_app():
 
         st.subheader(f"Graphique de l'Action : {company_name} ({ticker_input})")
 
-        # --- CALCULS DES INDICATEURS (Log-Linéaire, EMA, MACD, etc. - Code inchangé) ---
+        # --- CALCULS DES INDICATEURS (Code inchangé) ---
         data['Pct_Change'] = data['Close'].pct_change() * 100
         max_gain = data['Pct_Change'].max()
         min_loss = data['Pct_Change'].min()
@@ -250,9 +346,6 @@ def run_app():
         st.markdown("---")
 
         # --- Graphique Interactif (Code inchangé) ---
-        # ... (Le code du graphique reste ici, non inclus pour la concision) ...
-        # [GRAPHIQUE PLOTLY]
-        
         # 1. Créer la figure avec 2 subplots
         fig = make_subplots(
             rows=2, cols=1,
@@ -316,9 +409,7 @@ def run_app():
         ), row=2, col=1)
 
 
-        # --- Mise en page finale ---
-
-        # Titre général
+        # --- Mise en page finale (Code inchangé) ---
         fig.update_layout(
             title={
                 'text': f'Analyse {company_name} ({ticker_input}) ({period_choice}): Tendance Exp. & MACD',
@@ -332,14 +423,9 @@ def run_app():
             height=850
         )
 
-        # Mise à jour des axes du Subplot 1 (Prix)
         fig.update_yaxes(title_text=f"Prix ({currency}) (Log)", row=1, col=1, type="log")
-
-        # Mise à jour des axes du Subplot 2 (MACD)
         fig.update_yaxes(title_text="MACD", row=2, col=1)
         fig.update_xaxes(title_text="Date", row=2, col=1)
-
-        # Affichage du graphique dans Streamlit
         st.plotly_chart(fig, use_container_width=True)
 
         # --- Affichage des autres résultats du modèle (Code inchangé) ---
@@ -354,54 +440,102 @@ def run_app():
         """
         st.markdown(details)
 
-        # --- NOUVELLE SECTION : ANALYSE DUPONT (ROE) ---
+        # --- NOUVELLE SECTION : ANALYSE DUPONT (ROE LTM) ---
         st.markdown("---")
-        st.markdown("<h2 style='text-align: center;'>Analyse DuPont (Return on Equity)</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center;'>Analyse DuPont (Return on Equity) - LTM</h2>", unsafe_allow_html=True)
         
         try:
             # Récupération des données financières trimestrielles
             q_financials = ticker_obj.quarterly_financials
             q_balance = ticker_obj.quarterly_balance_sheet
             
-            # Effectuer le calcul
+            # Effectuer le calcul ROE (LTM)
             dupont_results = calculate_dupont(q_financials, q_balance)
             
             if dupont_results and 'error' not in dupont_results:
                 # Affichage des dates utilisées pour le contexte
-                date_actuel, date_prec = dupont_results['Dates']
-                st.caption(f"Basé sur le dernier trimestre ({date_actuel}) et le trimestre précédent ({date_prec}) pour le calcul des moyennes d'actifs et de capitaux propres.")
+                dates_ltm_start = dupont_results['Dates_LTM'][-1]
+                dates_ltm_end = dupont_results['Dates_LTM'][0]
+                date_bilan_t0 = dupont_results['Dates_Bilan'][0]
+                date_bilan_t4 = dupont_results['Dates_Bilan'][1]
+                
+                st.caption(f"Le ROE LTM est basé sur les flux financiers du {dates_ltm_start} au {dates_ltm_end}. Le bilan moyen est calculé entre le {date_bilan_t0} (T0) et le {date_bilan_t4} (T-4).")
 
                 col_a, col_b, col_c, col_d = st.columns(4)
                 
                 with col_a:
                     st.metric(
-                        label="1. Marge Nette (Net Profit Margin)",
+                        label="1. Marge Nette (LTM)",
                         value=f"{dupont_results['Marge_Nette'] * 100:.2f} %"
                     )
                 with col_b:
                     st.metric(
-                        label="2. Rotation de l'Actif (Asset Turnover)",
+                        label="2. Rotation de l'Actif (LTM)",
                         value=f"{dupont_results['Rotation_Actif']:.2f} x"
                     )
                 with col_c:
                     st.metric(
-                        label="3. Multiplicateur de CE (Equity Multiplier)",
+                        label="3. Multiplicateur de CE (T0/T-4)",
                         value=f"{dupont_results['Multiplicateur_CE']:.2f} x"
                     )
                 with col_d:
                     # Final ROE (produit des 3)
                     st.metric(
-                        label="ROE (Return on Equity)",
+                        label="ROE (Return on Equity) LTM",
                         value=f"{dupont_results['ROE'] * 100:.2f} %",
                         delta=f"Produit de (1) x (2) x (3)"
                     )
             elif dupont_results and 'error' in dupont_results:
-                st.info(f"Analyse DuPont non disponible: {dupont_results['error']}")
+                st.info(f"Analyse DuPont (ROE LTM) non disponible: {dupont_results['error']}")
             else:
-                st.info("Les données financières trimestrielles nécessaires à l'Analyse DuPont ne sont pas suffisantes ou complètes (nécessite au moins 2 trimestres de bilan).")
+                st.info("Les données financières trimestrielles nécessaires à l'Analyse DuPont (ROE LTM) ne sont pas suffisantes (nécessite 4 Q de résultats et 5 Q de bilan).")
                 
         except Exception as e:
-            st.error(f"Erreur inattendue lors de l'accès aux données financières de YFinance: {e}")
+            st.error(f"Erreur inattendue lors de l'accès aux données financières de YFinance pour ROE LTM: {e}")
+            
+        # --- NOUVELLE SECTION : ANALYSE ROIC (LTM) ---
+        st.markdown("---")
+        st.markdown("<h2 style='text-align: center;'>Décomposition du ROIC (Return on Invested Capital) - LTM</h2>", unsafe_allow_html=True)
+
+        try:
+            # Effectuer le calcul ROIC (LTM)
+            roic_results = calculate_roic(q_financials, q_balance)
+            
+            if roic_results and 'error' not in roic_results:
+                # Affichage des dates utilisées pour le contexte
+                dates_ltm_start = roic_results['Dates_LTM'][-1]
+                dates_ltm_end = roic_results['Dates_LTM'][0]
+                date_bilan_t0 = roic_results['Dates_Bilan'][0]
+                date_bilan_t4 = roic_results['Dates_Bilan'][1]
+
+                st.caption(f"Le ROIC LTM est basé sur les flux financiers du {dates_ltm_start} au {dates_ltm_end}. Le capital investi moyen est calculé entre le {date_bilan_t0} (T0) et le {date_bilan_t4} (T-4).")
+
+                col_e, col_f, col_g = st.columns([1, 1, 2]) # 3 colonnes pour les 3 métriques
+
+                with col_e:
+                    st.metric(
+                        label="1. Marge NOPAT (LTM)",
+                        value=f"{roic_results['Marge_NOPAT'] * 100:.2f} %"
+                    )
+                with col_f:
+                    st.metric(
+                        label="2. Rotation du CI (LTM)",
+                        value=f"{roic_results['Rotation_CI']:.2f} x"
+                    )
+                with col_g:
+                    # Final ROIC (produit des 2)
+                    st.metric(
+                        label="ROIC (Return on Invested Capital) LTM",
+                        value=f"{roic_results['ROIC'] * 100:.2f} %",
+                        delta=f"Produit de (1) x (2)"
+                    )
+            elif roic_results and 'error' in roic_results:
+                 st.info(f"Analyse ROIC (LTM) non disponible: {roic_results['error']}")
+            else:
+                st.info("Les données financières trimestrielles nécessaires à la décomposition du ROIC LTM ne sont pas suffisantes (nécessite 4 Q de résultats et 5 Q de bilan).")
+                
+        except Exception as e:
+            st.error(f"Erreur inattendue lors de l'accès aux données financières de YFinance pour ROIC LTM: {e}")
 
     except Exception as e:
         st.error(f"Une erreur est survenue lors du traitement des données ou du téléchargement: {e}")
