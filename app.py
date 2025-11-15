@@ -4,10 +4,6 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
 import plotly.graph_objects as go
-# make_subplots n'est plus nécessaire mais je le laisse importé pour éviter d'autres erreurs si la suppression de la dépendance est risquée,
-# mais je ne l'utiliserai pas. Je vais plutôt utiliser go.Figure().
-# Si je devais l'utiliser, je le laisserais, mais ici je vais l'enlever pour nettoyer.
-# from plotly.subplots import make_subplots
 from datetime import date
 from pandas.core.series import Series
 
@@ -19,11 +15,8 @@ st.set_page_config(
 )
 
 # --- Constantes globales pour les calculs ---
-WINDOW_MA_SHORT = 50
+WINDOW_MA_SHORT = 30
 WINDOW_MA_LONG = 200
-# SUPPRIMÉES : MACD_FAST_PERIOD = 12
-# SUPPRIMÉES : MACD_SLOW_PERIOD = 26
-# SUPPRIMÉES : MACD_SIGNAL_PERIOD = 9
 WEEKS_PER_MONTH = 4.33
 WEEKS_PER_YEAR = 52
 
@@ -241,12 +234,12 @@ def run_app():
         period_label = "Mois"
 
     st.sidebar.markdown("---")
-    st.sidebar.caption(f"EMA Courte: {WINDOW_MA_SHORT} Périodes ({period_label}s)")
-    st.sidebar.caption(f"EMA Longue: {WINDOW_MA_LONG} Périodes ({period_label}s)")
+    st.sidebar.caption(f"SMA Courte: {WINDOW_MA_SHORT} Périodes ({period_label}s)")
+    st.sidebar.caption(f"SMA Longue: {WINDOW_MA_LONG} Périodes ({period_label}s)")
     st.sidebar.caption(f"Intervalle YFinance: **{interval}**")
     st.sidebar.write(f"Période: **{start_date}** à **{end_date}**")
 
-    # TITRE MIS À JOUR (MACD RETIRÉ)
+
     st.title("Analyse de Tendance Exponentielle et Volatilité")
     st.markdown(f"**Action:** {ticker_input} | **Période d'Agrégation:** {period_choice}")
     st.markdown("---")
@@ -267,15 +260,15 @@ def run_app():
 
         st.subheader(f"Graphique de l'Action : {company_name} ({ticker_input})")
 
-        # --- CALCULS DES INDICATEURS (MACD RETIRÉ) ---
+        # --- CALCULS DES INDICATEURS ---
         data['Pct_Change'] = data['Close'].pct_change() * 100
         max_gain = data['Pct_Change'].max()
         min_loss = data['Pct_Change'].min()
         date_max_gain = data['Pct_Change'].idxmax().strftime('%Y-%m-%d')
         date_min_loss = data['Pct_Change'].idxmin().strftime('%Y-%m-%d')
 
-        data[f'EMA_{WINDOW_MA_SHORT}'] = data['Close'].ewm(span=WINDOW_MA_SHORT, adjust=False).mean()
-        data[f'EMA_{WINDOW_MA_LONG}'] = data['Close'].ewm(span=WINDOW_MA_LONG, adjust=False).mean()
+        data[f'SMA_{WINDOW_MA_SHORT}'] = data['Close'].rolling(window=WINDOW_MA_SHORT).mean()
+        data[f'SMA_{WINDOW_MA_LONG}'] = data['Close'].rolling(window=WINDOW_MA_LONG).mean()
 
         data['Periods'] = np.arange(len(data))
         data['Log_Close'] = np.log(data['Close'])
@@ -345,7 +338,6 @@ def run_app():
 
         st.markdown("---")
 
-        # --- Graphique Interactif (MACD/Subplot RETIRÉ) ---
         
         # 1. Créer la figure (Sans make_subplots)
         fig = go.Figure()
@@ -362,12 +354,12 @@ def run_app():
         fig.add_trace(go.Scatter(x=data.index, y=data['Lower_1sigma'], mode='lines', name=f'-1σ ({data["Lower_1sigma"].iloc[-1]:.2f})', line=dict(color='green', width=1, dash='dash'), legendgroup='prix', showlegend=True))
         fig.add_trace(go.Scatter(x=data.index, y=data['Lower_2sigma'], mode='lines', name=f'-2σ ({data["Lower_2sigma"].iloc[-1]:.2f})', line=dict(color='orange', width=0.5, dash='dot'), legendgroup='prix', showlegend=True))
 
-        # Moyennes Mobiles Exponentielles (EMA)
-        ma_long_label = f'EMA {WINDOW_MA_LONG} {period_label}s: {data[f"EMA_{WINDOW_MA_LONG}"].iloc[-1]:.2f}'
-        fig.add_trace(go.Scatter(x=data.index, y=data[f'EMA_{WINDOW_MA_LONG}'], mode='lines', name=ma_long_label, line=dict(color='purple', width=2, dash='solid'), legendgroup='prix', showlegend=True))
+        # Moyennes Mobiles Exponentielles (SMA)
+        ma_long_label = f'SMA {WINDOW_MA_LONG} {period_label}s: {data[f"SMA_{WINDOW_MA_LONG}"].iloc[-1]:.2f}'
+        fig.add_trace(go.Scatter(x=data.index, y=data[f'SMA_{WINDOW_MA_LONG}'], mode='lines', name=ma_long_label, line=dict(color='deeppink', width=2, dash='solid'), legendgroup='prix', showlegend=True))
 
-        ma_short_label = f'EMA {WINDOW_MA_SHORT} {period_label}s: {data[f"EMA_{WINDOW_MA_SHORT}"].iloc[-1]:.2f}'
-        fig.add_trace(go.Scatter(x=data.index, y=data[f'EMA_{WINDOW_MA_SHORT}'], mode='lines', name=ma_short_label, line=dict(color='blue', width=1, dash='solid'), legendgroup='prix', showlegend=True))
+        ma_short_label = f'SMA {WINDOW_MA_SHORT} {period_label}s: {data[f"SMA_{WINDOW_MA_SHORT}"].iloc[-1]:.2f}'
+        fig.add_trace(go.Scatter(x=data.index, y=data[f'SMA_{WINDOW_MA_SHORT}'], mode='lines', name=ma_short_label, line=dict(color='deepskyblue', width=1, dash='solid'), legendgroup='prix', showlegend=True))
 
         # --- Mise en page finale ---
         fig.update_layout(
