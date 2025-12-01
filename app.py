@@ -343,16 +343,16 @@ def run_app():
         fig = go.Figure()
 
         # Bandes de Volatilité (+/- 2 et 1 sigma)
-        fig.add_trace(go.Scatter(x=data.index, y=data['Upper_2sigma'], mode='lines', name=f'+2σ ({data["Upper_2sigma"].iloc[-1]:.2f})', line=dict(color='orange', width=0.5, dash='dot'), legendgroup='prix', showlegend=True))
-        fig.add_trace(go.Scatter(x=data.index, y=data['Upper_1sigma'], mode='lines', name=f'+1σ ({data["Upper_1sigma"].iloc[-1]:.2f})', line=dict(color='green', width=1, dash='dash'), legendgroup='prix', showlegend=True))
+        fig.add_trace(go.Scatter(x=data.index, y=data['Upper_2sigma'], mode='lines', name=f'+2σ ({data["Upper_2sigma"].iloc[-1]:.2f})', line=dict(color='grey', width=0.5, dash='dot'), legendgroup='prix', showlegend=True))
+        fig.add_trace(go.Scatter(x=data.index, y=data['Upper_1sigma'], mode='lines', name=f'+1σ ({data["Upper_1sigma"].iloc[-1]:.2f})', line=dict(color='grey', width=1, dash='dash'), legendgroup='prix', showlegend=True))
 
         # Prix de clôture et Tendance Exponentielle
-        fig.add_trace(go.Scatter(x=data.index, y=y_price, mode='lines', name=f'Prix de clôture: {y_price.iloc[-1]:.2f}', line=dict(color='black', width=2), legendgroup='prix', showlegend=True))
-        fig.add_trace(go.Scatter(x=data.index, y=data['Predicted_Price'], mode='lines', name=f'Tendance Exp.: {data["Predicted_Price"].iloc[-1]:.2f}', line=dict(color='red', width=2), legendgroup='prix', showlegend=True))
+        fig.add_trace(go.Scatter(x=data.index, y=y_price, mode='lines', name=f'Prix de clôture: {y_price.iloc[-1]:.2f}', line=dict(color='#345CEB', width=2), legendgroup='prix', showlegend=True))
+        fig.add_trace(go.Scatter(x=data.index, y=data['Predicted_Price'], mode='lines', name=f'Tendance Exp.: {data["Predicted_Price"].iloc[-1]:.2f}', line=dict(color='#FACF25', width=2), legendgroup='prix', showlegend=True))
 
         # Lignes -1 et -2 sigma inférieures
-        fig.add_trace(go.Scatter(x=data.index, y=data['Lower_1sigma'], mode='lines', name=f'-1σ ({data["Lower_1sigma"].iloc[-1]:.2f})', line=dict(color='green', width=1, dash='dash'), legendgroup='prix', showlegend=True))
-        fig.add_trace(go.Scatter(x=data.index, y=data['Lower_2sigma'], mode='lines', name=f'-2σ ({data["Lower_2sigma"].iloc[-1]:.2f})', line=dict(color='orange', width=0.5, dash='dot'), legendgroup='prix', showlegend=True))
+        fig.add_trace(go.Scatter(x=data.index, y=data['Lower_1sigma'], mode='lines', name=f'-1σ ({data["Lower_1sigma"].iloc[-1]:.2f})', line=dict(color='grey', width=1, dash='dash'), legendgroup='prix', showlegend=True))
+        fig.add_trace(go.Scatter(x=data.index, y=data['Lower_2sigma'], mode='lines', name=f'-2σ ({data["Lower_2sigma"].iloc[-1]:.2f})', line=dict(color='grey', width=0.5, dash='dot'), legendgroup='prix', showlegend=True))
 
         # Moyennes Mobiles Exponentielles (SMA)
         ma_long_label = f'SMA {WINDOW_MA_LONG} {period_label}s: {data[f"SMA_{WINDOW_MA_LONG}"].iloc[-1]:.2f}'
