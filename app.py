@@ -128,6 +128,87 @@ def calculate_dupont(q_financials: pd.DataFrame, q_balance: pd.DataFrame) -> dic
     }
 
 
+# --- FONCTION DE SIMULATION MONTE CARLO ---
+def run_monte_carlo_simulation(
+    initial_price: float,
+    expected_return_period: float,  # rendement attendu par période (log)
+    volatility_period: float,       # volatilité par période (écart-type log)
+    num_simulations: int,
+    num_periods: int,
+    seed: int = 42
+) -> np.ndarray:
+    """
+    Exécute une simulation de Monte Carlo pour la projection des prix.
+    Utilise le modèle de Mouvement Brownien Géométrique (GBM).
+    
+    Returns:
+        np.ndarray: Matrice de prix (num_periods + 1, num_simulations)
+    """
+    np.random.seed(seed)
+    
+    # Le drift est directement le rendement log attendu par période
+    # pente_log_periode de la régression = E[log(S_t+1/S_t)] = μ - σ²/2
+    # Donc on l'utilise directement sans ajustement supplémentaire
+    drift = expected_return_period
+    
+    # Génération des chocs aléatoires
+    random_shocks = np.random.normal(0, 1, (num_periods, num_simulations))
+    
+    # Calcul des rendements logarithmiques
+    log_returns = drift + volatility_period * random_shocks
+    
+    # Construction des trajectoires de prix
+    price_paths = np.zeros((num_periods + 1, num_simulations))
+    price_paths[0] = initial_price
+    
+    for t in range(1, num_periods + 1):
+        price_paths[t] = price_paths[t-1] * np.exp(log_returns[t-1])
+    
+    return price_paths
+
+
+def calculate_monte_carlo_statistics(
+    price_paths: np.ndarray, 
+    max_price: float = None, 
+    min_price: float = None
+) -> dict:
+    """
+    Calcule les statistiques clés des simulations Monte Carlo.
+    Utilise P10-P90 et applique des bornes réalistes si fournies.
+    """
+    final_prices = price_paths[-1, :]
+    initial_price = price_paths[0, 0]
+    
+    # Calculer les percentiles bruts
+    p10 = np.percentile(final_prices, 10)
+    p25 = np.percentile(final_prices, 25)
+    p75 = np.percentile(final_prices, 75)
+    p90 = np.percentile(final_prices, 90)
+    
+    # Appliquer les bornes réalistes si fournies
+    if max_price is not None:
+        p75 = min(p75, max_price)
+        p90 = min(p90, max_price)
+    if min_price is not None:
+        p10 = max(p10, min_price)
+        p25 = max(p25, min_price)
+    
+    return {
+        'mean_final': np.mean(final_prices),
+        'median_final': np.median(final_prices),
+        'std_final': np.std(final_prices),
+        'min_final': np.min(final_prices),
+        'max_final': np.max(final_prices),
+        'percentile_10': p10,
+        'percentile_25': p25,
+        'percentile_75': p75,
+        'percentile_90': p90,
+        'prob_gain': np.mean(final_prices > initial_price) * 100,
+        'prob_double': np.mean(final_prices > 2 * initial_price) * 100,
+        'prob_loss_50': np.mean(final_prices < 0.5 * initial_price) * 100,
+    }
+
+
 # --- FONCTION DE CALCUL POUR L'ANALYSE ROIC (LTM) (INCHANGÉE) ---
 def calculate_roic(q_financials: pd.DataFrame, q_balance: pd.DataFrame) -> dict | None:
     """
@@ -393,7 +474,7 @@ def run_app():
         
         # --- NOUVELLE SECTION : ANALYSE DUPONT (ROE LTM) ---
         st.markdown("---")
-        st.markdown("<h2 style='text-align: center;'>Analyse DuPont (Return on Equity) - LTM</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center;'>🔎Analyse DuPont (Return on Equity) - LTM</h2>", unsafe_allow_html=True)
         
         try:
             # Récupération des données financières trimestrielles
@@ -436,19 +517,95 @@ def run_app():
                         delta=f"Produit de (1) x (2) x (3)"
                     )
                     
-                # AJOUT DE L'EXPLICATION DUPONT SOUS LES MÉTRIQUES
-                st.markdown("""
-                ### Explication : Décomposition DuPont
-                L'analyse **DuPont** est cruciale pour décortiquer le **Rendement des Capitaux Propres (ROE)** en ses trois composantes :
-                
-                $$\\text{ROE} = \\text{Marge Nette} \\times \\text{Rotation des Actifs} \\times \\text{Effet de Levier}$$
-                
-                * **Marge Nette** (Résultat Net / Ventes) : Représente l'**efficacité opérationnelle et la gestion des coûts**. C'est la part du revenu conservée sous forme de profit.
-                * **Rotation de l'Actif** (Ventes / Actifs) : Mesure l'**efficacité d'utilisation des actifs** pour générer du revenu. Une rotation élevée signifie une utilisation intensive des actifs.
-                * **Multiplicateur de Capitaux Propres** (Actifs / Capitaux Propres) : Indique l'**effet de levier financier** (dette). Plus il est élevé, plus l'entreprise utilise de la dette pour financer ses actifs.
-                
-                Elle permet à l'analyste de déterminer si le ROE est généré par de bonnes marges, une excellente utilisation des actifs ou un fort endettement.
-                """)
+                # EXPLICATION DUPONT DANS UN EXPANDER
+                with st.expander("📚 Comprendre la Décomposition DuPont (cliquez pour voir)"):
+                    st.markdown("""
+                    ## Qu'est-ce que l'Analyse DuPont ?
+                    
+                    L'analyse **DuPont** décompose le **ROE (Return on Equity)** en trois leviers fondamentaux :
+                    
+                    $$\\text{ROE} = \\text{Marge Nette} \\times \\text{Rotation des Actifs} \\times \\text{Multiplicateur CE}$$
+                    
+                    ---
+                    
+                    ### 1️⃣ Marge Nette (Résultat Net / Chiffre d'Affaires)
+                    
+                    **Ce que ça mesure :** Combien de profit l'entreprise garde pour chaque euro de vente.
+                    
+                    | Secteur | Marge Nette Typique |
+                    |---------|---------------------|
+                    | Luxe (LVMH, Hermès) | 15-25% |
+                    | Tech (Google, Microsoft) | 20-35% |
+                    | Grande distribution (Carrefour) | 1-3% |
+                    | Automobile | 3-8% |
+                    
+                    **Exemple concret :**
+                    - Chiffre d'affaires : **100 M€**
+                    - Résultat net : **15 M€**
+                    - Marge nette = 15/100 = **15%**
+                    
+                    ✅ **Bonne marge** = Pouvoir de fixation des prix, efficacité opérationnelle  
+                    ❌ **Faible marge** = Forte concurrence, coûts élevés
+                    
+                    ---
+                    
+                    ### 2️⃣ Rotation des Actifs (Chiffre d'Affaires / Total Actifs)
+                    
+                    **Ce que ça mesure :** Combien de revenus chaque euro d'actif génère.
+                    
+                    | Secteur | Rotation Typique |
+                    |---------|------------------|
+                    | Grande distribution | 2.0 - 3.0x |
+                    | Restauration rapide | 1.5 - 2.5x |
+                    | Industrie lourde | 0.5 - 1.0x |
+                    | Utilities (électricité) | 0.3 - 0.5x |
+                    
+                    **Exemple concret :**
+                    - Chiffre d'affaires : **100 M€**
+                    - Total des actifs : **50 M€**
+                    - Rotation = 100/50 = **2.0x**
+                    
+                    ✅ **Rotation élevée** = Utilisation intensive des actifs (ex: supermarché)  
+                    ❌ **Rotation faible** = Actifs lourds peu utilisés (ex: usine)
+                    
+                    ---
+                    
+                    ### 3️⃣ Multiplicateur de Capitaux Propres (Actifs / Capitaux Propres)
+                    
+                    **Ce que ça mesure :** Le niveau d'endettement (effet de levier financier).
+                    
+                    | Multiplicateur | Signification |
+                    |----------------|---------------|
+                    | 1.0x | Pas de dette (100% fonds propres) |
+                    | 2.0x | 50% dette, 50% fonds propres |
+                    | 3.0x | 67% dette, 33% fonds propres |
+                    | 5.0x | 80% dette, 20% fonds propres |
+                    
+                    **Exemple concret :**
+                    - Total des actifs : **100 M€**
+                    - Capitaux propres : **40 M€**
+                    - Multiplicateur = 100/40 = **2.5x** (60% de dette)
+                    
+                    ✅ **Levier modéré (1.5-2.5x)** = Optimisation du rendement  
+                    ⚠️ **Levier élevé (>3x)** = Risque financier accru
+                    
+                    ---
+                    
+                    ### 🎯 Exemple Complet : Comparaison de 2 Entreprises
+                    
+                    | Métrique | Entreprise A | Entreprise B |
+                    |----------|--------------|--------------|
+                    | Marge Nette | 10% | 5% |
+                    | Rotation Actifs | 1.0x | 2.0x |
+                    | Multiplicateur CE | 2.0x | 2.0x |
+                    | **ROE** | **20%** | **20%** |
+                    
+                    **Même ROE, mais :**
+                    - **Entreprise A** : Marges élevées, modèle premium
+                    - **Entreprise B** : Volume élevé, marges faibles
+                    
+                    L'analyse DuPont révèle **comment** le ROE est généré, pas seulement sa valeur !
+                    """)
                 
             elif dupont_results and 'error' in dupont_results:
                 st.info(f"Analyse DuPont (ROE LTM) non disponible: {dupont_results['error']}")
@@ -460,7 +617,7 @@ def run_app():
             
         # --- NOUVELLE SECTION : ANALYSE ROIC (LTM) ---
         st.markdown("---")
-        st.markdown("<h2 style='text-align: center;'>Décomposition du ROIC (Return on Invested Capital) - LTM</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center;'>🛠️ Décomposition du ROIC (Return on Invested Capital) - LTM</h2>", unsafe_allow_html=True)
 
         try:
             # Effectuer le calcul ROIC (LTM)
@@ -493,18 +650,107 @@ def run_app():
                         delta=f"Produit de (1) x (2)"
                     )
                     
-                # AJOUT DE L'EXPLICATION ROIC SOUS LES MÉTRIQUES
-                st.markdown("""
-                ### Explication : Décomposition du ROIC
-                Le **ROIC (Return on Invested Capital)** mesure la capacité d'une entreprise à générer des bénéfices à partir du capital qu'elle a investi (dette et capitaux propres). Sa décomposition est :
-                
-                $$\\text{ROIC} = \\text{Marge Opérationnelle (NOPAT)} \\times \\text{Rotation du Capital Investi}$$
-                
-                * **Marge NOPAT** (NOPAT / Ventes) : Mesure le profit opérationnel après impôts généré par les ventes. C'est l'indicateur de la **rentabilité opérationnelle pure**, indépendante du financement.
-                * **Rotation du Capital Investi** (Ventes / Capital Investi) : Mesure la capacité de l'entreprise à générer des revenus avec le capital qu'elle utilise. C'est l'indicateur de l'**efficacité de l'allocation du capital**.
-                
-                Le ROIC est souvent préféré au ROE car il n'est pas affecté par la structure de financement de l'entreprise (effet de levier) et permet une meilleure comparaison entre entreprises.
-                """)
+                # EXPLICATION ROIC DANS UN EXPANDER
+                with st.expander("📚 Comprendre la Décomposition du ROIC (cliquez pour voir)"):
+                    st.markdown("""
+                    ## Qu'est-ce que le ROIC ?
+                    
+                    Le **ROIC (Return on Invested Capital)** mesure la rentabilité du capital total investi 
+                    dans l'entreprise (dette + capitaux propres), indépendamment de la structure de financement.
+                    
+                    $$\\text{ROIC} = \\text{Marge NOPAT} \\times \\text{Rotation du Capital Investi}$$
+                    
+                    ---
+                    
+                    ### 1️⃣ Marge NOPAT (NOPAT / Chiffre d'Affaires)
+                    
+                    **NOPAT** = Net Operating Profit After Taxes = EBIT × (1 - Taux d'imposition)
+                    
+                    **Ce que ça mesure :** La rentabilité opérationnelle pure, sans l'effet du financement (intérêts).
+                    
+                    | Secteur | Marge NOPAT Typique |
+                    |---------|---------------------|
+                    | Tech/Software | 20-30% |
+                    | Pharma | 15-25% |
+                    | Industrie | 8-15% |
+                    | Distribution | 3-8% |
+                    
+                    **Exemple concret :**
+                    - Chiffre d'affaires : **100 M€**
+                    - EBIT : **20 M€**
+                    - Taux d'imposition : **25%**
+                    - NOPAT = 20 × (1 - 0.25) = **15 M€**
+                    - Marge NOPAT = 15/100 = **15%**
+                    
+                    ✅ **Haute marge NOPAT** = Excellence opérationnelle  
+                    ❌ **Faible marge NOPAT** = Problèmes structurels de rentabilité
+                    
+                    ---
+                    
+                    ### 2️⃣ Rotation du Capital Investi (CA / Capital Investi)
+                    
+                    **Capital Investi** = Capitaux Propres + Dette Financière Nette
+                    
+                    **Ce que ça mesure :** L'efficacité avec laquelle le capital est utilisé pour générer des ventes.
+                    
+                    | Secteur | Rotation CI Typique |
+                    |---------|---------------------|
+                    | Services/Conseil | 2.0 - 4.0x |
+                    | Distribution | 1.5 - 2.5x |
+                    | Industrie | 0.8 - 1.5x |
+                    | Utilities | 0.3 - 0.6x |
+                    
+                    **Exemple concret :**
+                    - Chiffre d'affaires : **100 M€**
+                    - Capitaux propres : **30 M€**
+                    - Dette nette : **20 M€**
+                    - Capital investi = 30 + 20 = **50 M€**
+                    - Rotation CI = 100/50 = **2.0x**
+                    
+                    ✅ **Rotation élevée** = Capital utilisé efficacement  
+                    ❌ **Rotation faible** = Capital "dormant" ou mal alloué
+                    
+                    ---
+                    
+                    ### 🎯 Pourquoi le ROIC est-il Important ?
+                    
+                    | Critère | ROE | ROIC |
+                    |---------|-----|------|
+                    | Prend en compte la dette | ❌ Non (gonflé par le levier) | ✅ Oui |
+                    | Comparable entre secteurs | ⚠️ Difficile | ✅ Plus facile |
+                    | Mesure la création de valeur | ⚠️ Partiel | ✅ Oui |
+                    
+                    **Règle de création de valeur :**
+                    - Si **ROIC > Coût du Capital (WACC)** → L'entreprise **crée** de la valeur
+                    - Si **ROIC < WACC** → L'entreprise **détruit** de la valeur
+                    
+                    ---
+                    
+                    ### 📊 Exemple Complet
+                    
+                    | Métrique | Valeur |
+                    |----------|--------|
+                    | CA | 100 M€ |
+                    | NOPAT | 12 M€ |
+                    | Capital Investi | 60 M€ |
+                    | Marge NOPAT | 12% |
+                    | Rotation CI | 1.67x |
+                    | **ROIC** | **20%** |
+                    
+                    Si le WACC est de 10%, cette entreprise crée **10% de valeur** au-delà du coût de son capital !
+                    
+                    ---
+                    
+                    ### 🏆 Benchmarks ROIC par Secteur
+                    
+                    | Secteur | ROIC Médian | Top Performers |
+                    |---------|-------------|----------------|
+                    | Tech/Software | 15-25% | >40% (Google, Microsoft) |
+                    | Biens de consommation | 12-18% | >25% (L'Oréal, P&G) |
+                    | Industrie | 8-12% | >15% |
+                    | Utilities | 5-8% | >10% |
+                    | Airlines | 2-6% | >10% (rare) |
+                    """)
                 
             elif roic_results and 'error' in roic_results:
                     st.info(f"Analyse ROIC (LTM) non disponible: {roic_results['error']}")
@@ -513,6 +759,464 @@ def run_app():
                 
         except Exception as e:
             st.error(f"Erreur inattendue lors de l'accés aux données financiéres de YFinance pour ROIC LTM: {e}")
+
+        # --- NOUVELLE SECTION : SIMULATION MONTE CARLO ---
+        st.markdown("---")
+        st.markdown("<h2 style='text-align: center;'>🎲 Simulation Monte Carlo - Projection des Prix</h2>", unsafe_allow_html=True)
+        
+        st.markdown("""
+        La simulation **Monte Carlo** utilise le rendement et la volatilité historiques pour générer 
+        des milliers de trajectoires de prix possibles, permettant d'estimer la distribution 
+        probabiliste des prix futurs.
+        
+        ⚠️ **Bornes réalistes appliquées** : Les scénarios extrêmes sont plafonnés à des rendements 
+        annuels composés (CAGR) de **+28%** (optimiste) et **-18%** (pessimiste), basés sur les 
+        performances historiques exceptionnelles des marchés.
+        """)
+        
+        # Paramètres de la simulation dans la sidebar
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🎲 Paramètres Monte Carlo")
+        
+        num_simulations = st.sidebar.slider(
+            "Nombre de Simulations",
+            min_value=100,
+            max_value=10000,
+            value=1000,
+            step=100,
+            help="Plus de simulations = résultats plus précis mais calcul plus long"
+        )
+        
+        # Horizon de projection (1, 2, 5, 10 ans uniquement)
+        if period_choice == "Hebdomadaire":
+            horizon_options = {
+                "1 an (~52 semaines)": 52,
+                "2 ans (~104 semaines)": 104,
+                "5 ans (~260 semaines)": 260,
+                "10 ans (~520 semaines)": 520
+            }
+        else:
+            horizon_options = {
+                "1 an (12 mois)": 12,
+                "2 ans (24 mois)": 24,
+                "5 ans (60 mois)": 60,
+                "10 ans (120 mois)": 120
+            }
+        
+        selected_horizon = st.sidebar.selectbox(
+            "Horizon de Projection",
+            options=list(horizon_options.keys()),
+            index=0  # Par défaut: 1 an
+        )
+        
+        num_periods = horizon_options[selected_horizon]
+        
+        # Déterminer le nombre d'années pour les caps réalistes
+        if period_choice == "Hebdomadaire":
+            num_years = num_periods / 52
+        else:
+            num_years = num_periods / 12
+        
+        # Définir des bornes réalistes basées sur des CAGR max/min historiques
+        # CAGR max ~25-30% (performance exceptionnelle type top hedge funds)
+        # CAGR min ~-15% (scénario très négatif prolongé)
+        MAX_CAGR = 0.28  # 28% par an (très optimiste mais possible)
+        MIN_CAGR = -0.18  # -18% par an (très pessimiste)
+        
+        max_realistic_multiple = (1 + MAX_CAGR) ** num_years
+        min_realistic_multiple = max((1 + MIN_CAGR) ** num_years, 0.05)  # Plancher à 5% du prix
+        
+        # Récupération des paramètres du modèle de tendance
+        current_price = float(y_price.iloc[-1])
+        
+        # Prix min/max réalistes
+        max_realistic_price = current_price * max_realistic_multiple
+        min_realistic_price = current_price * min_realistic_multiple
+        
+        # Lancer la simulation
+        with st.spinner(f"Simulation de {num_simulations} trajectoires sur {selected_horizon}..."):
+            price_paths = run_monte_carlo_simulation(
+                initial_price=current_price,
+                expected_return_period=pente_log_periode,
+                volatility_period=sigma_log,
+                num_simulations=num_simulations,
+                num_periods=num_periods
+            )
+            
+            # Calcul des statistiques
+            mc_stats = calculate_monte_carlo_statistics(
+                price_paths, 
+                max_price=max_realistic_price, 
+                min_price=min_realistic_price
+            )
+        
+        # Génération des dates futures pour l'axe X
+        last_date = data.index[-1]
+        if period_choice == "Hebdomadaire":
+            future_dates = pd.date_range(start=last_date, periods=num_periods + 1, freq='W')
+        else:
+            future_dates = pd.date_range(start=last_date, periods=num_periods + 1, freq='ME')
+        
+        # Calcul des percentiles pour les bandes (P10-P90 pour éviter les extrêmes)
+        # Puis application des bornes réalistes
+        percentile_10_raw = np.percentile(price_paths, 10, axis=1)
+        percentile_25_raw = np.percentile(price_paths, 25, axis=1)
+        percentile_50 = np.percentile(price_paths, 50, axis=1)
+        percentile_75_raw = np.percentile(price_paths, 75, axis=1)
+        percentile_90_raw = np.percentile(price_paths, 90, axis=1)
+        mean_path = np.mean(price_paths, axis=1)
+        
+        # Appliquer les bornes réalistes aux percentiles
+        percentile_10 = np.clip(percentile_10_raw, min_realistic_price, max_realistic_price)
+        percentile_25 = np.clip(percentile_25_raw, min_realistic_price, max_realistic_price)
+        percentile_75 = np.clip(percentile_75_raw, min_realistic_price, max_realistic_price)
+        percentile_90 = np.clip(percentile_90_raw, min_realistic_price, max_realistic_price)
+        
+        # Création du graphique Monte Carlo
+        fig_mc = go.Figure()
+        
+        # Filtrer les trajectoires pour n'afficher que celles dans les bornes réalistes
+        # Cela évite les scénarios extrêmes x100 ou x1000 non pertinents
+        final_prices = price_paths[-1, :]
+        
+        # Utiliser les bornes réalistes ET les percentiles P15-P85 pour plus de réalisme
+        p15_final = np.percentile(final_prices, 15)
+        p85_final = np.percentile(final_prices, 85)
+        
+        # Prendre le plus restrictif entre percentiles et bornes réalistes
+        lower_bound = max(p15_final, min_realistic_price)
+        upper_bound = min(p85_final, max_realistic_price)
+        
+        # Sélectionner uniquement les trajectoires dans ces bornes
+        valid_indices = np.where((final_prices >= lower_bound) & (final_prices <= upper_bound))[0]
+        num_paths_to_show = min(80, len(valid_indices))
+        sample_indices = np.random.choice(valid_indices, num_paths_to_show, replace=False)
+        
+        for idx in sample_indices:
+            fig_mc.add_trace(go.Scatter(
+                x=future_dates,
+                y=price_paths[:, idx],
+                mode='lines',
+                line=dict(color='rgba(100, 149, 237, 0.15)', width=0.5),
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+        
+        # Bandes de percentiles (zones ombrées)
+        # Zone 10-90% (intervalle 80%)
+        fig_mc.add_trace(go.Scatter(
+            x=future_dates,
+            y=percentile_90,
+            mode='lines',
+            line=dict(color='rgba(255, 165, 0, 0)'),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        fig_mc.add_trace(go.Scatter(
+            x=future_dates,
+            y=percentile_10,
+            mode='lines',
+            fill='tonexty',
+            fillcolor='rgba(255, 165, 0, 0.15)',
+            line=dict(color='rgba(255, 165, 0, 0)'),
+            name='Intervalle 80% (P10-P90)',
+            hoverinfo='skip'
+        ))
+        
+        # Zone 25-75% (intervalle 50%)
+        fig_mc.add_trace(go.Scatter(
+            x=future_dates,
+            y=percentile_75,
+            mode='lines',
+            line=dict(color='rgba(255, 140, 0, 0)'),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        fig_mc.add_trace(go.Scatter(
+            x=future_dates,
+            y=percentile_25,
+            mode='lines',
+            fill='tonexty',
+            fillcolor='rgba(255, 140, 0, 0.3)',
+            line=dict(color='rgba(255, 140, 0, 0)'),
+            name='Intervalle 50% (P25-P75)',
+            hoverinfo='skip'
+        ))
+        
+        # Ligne médiane (P50)
+        fig_mc.add_trace(go.Scatter(
+            x=future_dates,
+            y=percentile_50,
+            mode='lines',
+            name=f'Médiane (P50): {percentile_50[-1]:.2f} {currency}',
+            line=dict(color='#FF6B35', width=2, dash='dash')
+        ))
+        
+        # Ligne moyenne
+        fig_mc.add_trace(go.Scatter(
+            x=future_dates,
+            y=mean_path,
+            mode='lines',
+            name=f'Moyenne: {mean_path[-1]:.2f} {currency}',
+            line=dict(color='#E63946', width=2)
+        ))
+        
+        # Point de départ (prix actuel)
+        fig_mc.add_trace(go.Scatter(
+            x=[future_dates[0]],
+            y=[current_price],
+            mode='markers',
+            name=f'Prix actuel: {current_price:.2f} {currency}',
+            marker=dict(color='#2ECC71', size=12, symbol='diamond')
+        ))
+        
+        # Lignes de référence
+        fig_mc.add_hline(
+            y=current_price,
+            line_dash="dot",
+            line_color="green",
+            annotation_text=f"Prix actuel: {current_price:.2f}",
+            annotation_position="bottom right"
+        )
+        
+        fig_mc.update_layout(
+            title={
+                'text': f'Simulation Monte Carlo ({num_simulations} trajectoires) - Horizon: {selected_horizon}',
+                'y': 0.95,
+                'x': 0.5,
+                'xanchor': 'center',
+                'yanchor': 'top'
+            },
+            xaxis_title="Date",
+            yaxis_title=f"Prix ({currency})",
+            hovermode="x unified",
+            template="plotly_white",
+            height=550,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+                bgcolor="rgba(255,255,255,0.8)"
+            )
+        )
+        
+        fig_mc.update_yaxes(type="log")
+        
+        st.plotly_chart(fig_mc, use_container_width=True)
+        
+        # Affichage des statistiques Monte Carlo
+        st.markdown("### 📊 Statistiques de la Simulation")
+        
+        col_mc1, col_mc2, col_mc3, col_mc4 = st.columns(4)
+        
+        with col_mc1:
+            rendement_median = ((mc_stats['median_final'] / current_price) - 1) * 100
+            st.metric(
+                label=f"Prix Médian à {selected_horizon}",
+                value=f"{mc_stats['median_final']:.2f} {currency}",
+                delta=f"{rendement_median:+.1f}%"
+            )
+        
+        with col_mc2:
+            st.metric(
+                label="Intervalle 80% (P10-P90)",
+                value=f"{mc_stats['percentile_10']:.2f} - {mc_stats['percentile_90']:.2f}",
+                delta=None
+            )
+        
+        with col_mc3:
+            st.metric(
+                label="Probabilité de Gain",
+                value=f"{mc_stats['prob_gain']:.1f}%",
+                delta=None
+            )
+        
+        with col_mc4:
+            st.metric(
+                label="Prob. de Doubler",
+                value=f"{mc_stats['prob_double']:.1f}%",
+                delta=f"Prob. -50%: {mc_stats['prob_loss_50']:.1f}%" if mc_stats['prob_loss_50'] > 0 else None,
+                delta_color="inverse"
+            )
+        
+        # Tableau détaillé des percentiles
+        st.markdown("### 📈 Distribution des Prix Finaux")
+        
+        col_table1, col_table2 = st.columns(2)
+        
+        with col_table1:
+            percentile_data = pd.DataFrame({
+                'Percentile': ['10% (Pessimiste)', '25%', '50% (Médiane)', '75%', '90% (Optimiste)'],
+                f'Prix ({currency})': [
+                    f"{mc_stats['percentile_10']:.2f}",
+                    f"{mc_stats['percentile_25']:.2f}",
+                    f"{mc_stats['median_final']:.2f}",
+                    f"{mc_stats['percentile_75']:.2f}",
+                    f"{mc_stats['percentile_90']:.2f}"
+                ],
+                'Rendement': [
+                    f"{((mc_stats['percentile_10'] / current_price) - 1) * 100:+.1f}%",
+                    f"{((mc_stats['percentile_25'] / current_price) - 1) * 100:+.1f}%",
+                    f"{((mc_stats['median_final'] / current_price) - 1) * 100:+.1f}%",
+                    f"{((mc_stats['percentile_75'] / current_price) - 1) * 100:+.1f}%",
+                    f"{((mc_stats['percentile_90'] / current_price) - 1) * 100:+.1f}%"
+                ]
+            })
+            st.dataframe(percentile_data, use_container_width=True, hide_index=True)
+        
+        with col_table2:
+            st.markdown("""
+            **Interprétation des résultats:**
+            - **P10 (Pessimiste)**: 90% des simulations dépassent ce prix
+            - **P50 (Médiane)**: 50% des simulations au-dessus/en-dessous
+            - **P90 (Optimiste)**: Seulement 10% des simulations dépassent ce prix
+            
+            *Les scénarios extrêmes (P5/P95) sont exclus car ils représentent 
+            des événements rares peu pertinents pour la planification.*
+            """)
+        
+        # Histogramme des prix finaux (filtré pour exclure les extrêmes)
+        st.markdown("### 📊 Distribution des Prix à l'Horizon")
+        
+        final_prices_all = price_paths[-1, :]
+        
+        # Filtrer les prix extrêmes pour un histogramme plus lisible (P5-P95)
+        p5_hist = np.percentile(final_prices_all, 5)
+        p95_hist = np.percentile(final_prices_all, 95)
+        final_prices_filtered = final_prices_all[(final_prices_all >= p5_hist) & (final_prices_all <= p95_hist)]
+        
+        fig_hist = go.Figure()
+        
+        fig_hist.add_trace(go.Histogram(
+            x=final_prices_filtered,
+            nbinsx=50,
+            name='Distribution des prix simulés',
+            marker_color='rgba(52, 92, 235, 0.7)',
+            marker_line_color='rgba(52, 92, 235, 1)',
+            marker_line_width=1
+        ))
+        
+        # Ajouter des lignes verticales avec légende (en utilisant des traces Scatter invisibles)
+        # Prix actuel
+        fig_hist.add_trace(go.Scatter(
+            x=[current_price, current_price],
+            y=[0, 0],
+            mode='lines',
+            name=f'Prix actuel: {current_price:.2f} {currency}',
+            line=dict(color='#2ECC71', width=3, dash='solid'),
+            showlegend=True
+        ))
+        fig_hist.add_vline(x=current_price, line_dash="solid", line_color="#2ECC71", line_width=3)
+        
+        # Médiane
+        fig_hist.add_trace(go.Scatter(
+            x=[mc_stats['median_final'], mc_stats['median_final']],
+            y=[0, 0],
+            mode='lines',
+            name=f'Médiane (P50): {mc_stats["median_final"]:.2f} {currency}',
+            line=dict(color='#FF9500', width=2, dash='dash'),
+            showlegend=True
+        ))
+        fig_hist.add_vline(x=mc_stats['median_final'], line_dash="dash", line_color="#FF9500", line_width=2)
+        
+        # P10 (Pessimiste)
+        fig_hist.add_trace(go.Scatter(
+            x=[mc_stats['percentile_10'], mc_stats['percentile_10']],
+            y=[0, 0],
+            mode='lines',
+            name=f'P10 (Pessimiste): {mc_stats["percentile_10"]:.2f} {currency}',
+            line=dict(color='#E74C3C', width=2, dash='dot'),
+            showlegend=True
+        ))
+        fig_hist.add_vline(x=mc_stats['percentile_10'], line_dash="dot", line_color="#E74C3C", line_width=2)
+        
+        # P90 (Optimiste)
+        fig_hist.add_trace(go.Scatter(
+            x=[mc_stats['percentile_90'], mc_stats['percentile_90']],
+            y=[0, 0],
+            mode='lines',
+            name=f'P90 (Optimiste): {mc_stats["percentile_90"]:.2f} {currency}',
+            line=dict(color='#3498DB', width=2, dash='dot'),
+            showlegend=True
+        ))
+        fig_hist.add_vline(x=mc_stats['percentile_90'], line_dash="dot", line_color="#3498DB", line_width=2)
+        
+        fig_hist.update_layout(
+            title={
+                'text': f'Histogramme des Prix Simulés à {selected_horizon}',
+                'y': 0.95,
+                'x': 0.5,
+                'xanchor': 'center',
+                'yanchor': 'top'
+            },
+            xaxis_title=f"Prix ({currency})",
+            yaxis_title="Fréquence (nombre de simulations)",
+            template="plotly_white",
+            height=450,
+            showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.98,
+                xanchor="right",
+                x=0.98,
+                bgcolor="rgba(255,255,255,0.9)",
+                bordercolor="rgba(0,0,0,0.1)",
+                borderwidth=1
+            )
+        )
+        
+        st.plotly_chart(fig_hist, use_container_width=True)
+        
+        # Explication de la méthodologie
+        with st.expander("📚 Méthodologie de la Simulation Monte Carlo"):
+            st.markdown(f"""
+            ### Comment fonctionne cette simulation ?
+            
+            La simulation utilise le **Mouvement Brownien Géométrique (GBM)**, le modèle standard 
+            en finance pour modéliser l'évolution des prix d'actifs :
+            
+            $$\\ln\\left(\\frac{{S_{{t+1}}}}{{S_t}}\\right) = \\text{{drift}} + \\sigma \\cdot Z$$
+            
+            Ce qui équivaut à : $S_{{t+1}} = S_t \\times e^{{\\text{{drift}} + \\sigma \\cdot Z}}$
+            
+            Où:
+            - $S_t$ = Prix au temps t
+            - $\\text{{drift}}$ = Rendement log attendu par période, issu de la régression (estimé: **{pente_log_periode*100:.4f}%** par {period_label.lower()})
+            - $\\sigma$ = Volatilité des résidus log (estimée: **{sigma_log*100:.4f}%** par {period_label.lower()})
+            - $Z$ = Variable aléatoire normale standard $\\mathcal{{N}}(0, 1)$
+            
+            ### Paramètres utilisés:
+            | Paramètre | Valeur | Source |
+            |-----------|--------|--------|
+            | Prix initial | {current_price:.2f} {currency} | Dernier prix de clôture |
+            | Drift (rendement log) | {pente_log_periode*100:.4f}% / {period_label.lower()} | Pente de la régression log-linéaire |
+            | Volatilité (σ) | {sigma_log*100:.4f}% / {period_label.lower()} | Écart-type des résidus log |
+            | Nombre de simulations | {num_simulations:,} | Paramètre utilisateur |
+            | Horizon | {num_periods} {period_label.lower()}s | Paramètre utilisateur |
+            
+            ### Note technique:
+            Le drift utilisé est directement la pente de la régression log-linéaire, qui représente 
+            $E[\\ln(S_{{t+1}}/S_t)]$. Dans la théorie GBM, cela correspond à $(\\mu - \\sigma^2/2)$ où $\\mu$ 
+            est le rendement instantané. Nous utilisons directement cette valeur observée sans ajustement.
+            
+            ### Bornes réalistes appliquées:
+            Pour éviter les scénarios irréalistes (x100, x1000...), les résultats sont plafonnés à des 
+            rendements annuels composés (CAGR) historiquement exceptionnels :
+            
+            | Borne | CAGR | Multiple sur {num_years:.0f} an(s) | Prix limite |
+            |-------|------|-----------------------------------|-------------|
+            | Optimiste | +28%/an | x{max_realistic_multiple:.2f} | {max_realistic_price:.2f} {currency} |
+            | Pessimiste | -18%/an | x{min_realistic_multiple:.2f} | {min_realistic_price:.2f} {currency} |
+            
+            *Référence: Warren Buffett a réalisé ~20% CAGR sur 50 ans, les meilleurs hedge funds ~25-30%.*
+            
+            ### Limites du modèle:
+            - Suppose que les rendements futurs suivent la même distribution que les rendements passés
+            - Ne prend pas en compte les événements extrêmes (cygnes noirs)
+            - La volatilité est supposée constante dans le temps
+            - Le modèle GBM suppose des rendements log-normaux (distribution symétrique en log)
+            """)
 
     except Exception as e:
         st.error(f"Une erreur est survenue lors du traitement des données ou du téléchargement: {e}")
