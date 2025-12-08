@@ -987,33 +987,20 @@ def run_app():
                 st.markdown("")  # Espacement vertical
                 st.markdown(
                     "ℹ️",
-                    help="""**Qu'est-ce que c'est ?**
-
-Le Z-Score d'Altman est un indicateur qui prédit la probabilité qu'une entreprise fasse faillite dans les 2 ans.
-
-**À quoi ça sert ?**
-
-• Évaluer la solidité financière
-
-• Détecter les entreprises en difficulté
-
-• Éviter les 'value traps' (actions bon marché mais risquées)
-
-**Périodes utilisées** 📅
-
-• **Bilan** : Dernier trimestre disponible (T0)
-
-• **EBIT & CA** : LTM (4 derniers trimestres)
-
-• **Market Cap** : Valeur actuelle
-
-**Comment l'interpréter ?**
-
-• Z > 2.99 → Entreprise saine ✅
-
-• 1.81 < Z < 2.99 → Zone grise ⚠️
-
-• Z < 1.81 → Risque de faillite 🚨"""
+                    help="**Qu'est-ce que c'est ?**\n\n"
+                         "Le Z-Score d'Altman prédit la probabilité de faillite dans les 2 ans.\n\n"
+                         "**À quoi ça sert ?**\n\n"
+                         "- Évaluer la solidité financière\n\n"
+                         "- Détecter les entreprises en difficulté\n\n"
+                         "- Éviter les 'value traps'\n\n"
+                         "**Périodes utilisées** 📅\n\n"
+                         "- **Bilan** : Dernier trimestre (T0)\n\n"
+                         "- **EBIT & CA** : LTM (4 derniers trimestres)\n\n"
+                         "- **Market Cap** : Valeur actuelle\n\n"
+                         "**Comment l'interpréter ?**\n\n"
+                         "- Z > 2.99 → Saine ✅\n\n"
+                         "- 1.81 < Z < 2.99 → Zone grise ⚠️\n\n"
+                         "- Z < 1.81 → Risque faillite 🚨"
                 )
             z_results = calculate_altman_zscore(ticker_obj)
             
@@ -1049,112 +1036,64 @@ Le Z-Score d'Altman est un indicateur qui prédit la probabilité qu'une entrepr
                     col_detail1, col_detail2 = st.columns(2)
                     with col_detail1:
                         st.metric("A - Working Capital / Total Assets", f"{z_results['A']:.3f}",
-                                  help="""**Mesure** : Liquidité à court terme
-
-**Calcul** : (Actifs courants - Passifs courants) / Total Actifs
-
-**Interprétation** :
-
-• Positif → L'entreprise peut payer ses dettes à court terme
-
-• Négatif → Risque de problèmes de trésorerie
-
-**Valeurs typiques** :
-
-• > 0.20 : Excellente liquidité
-
-• 0.10 - 0.20 : Correcte
-
-• < 0.10 : Attention, liquidité faible
-
-• < 0 : Signal d'alerte 🚨""")
+                                  help="**Mesure** : Liquidité à court terme\n\n"
+                                       "**Calcul** : (Actifs courants - Passifs courants) / Total Actifs\n\n"
+                                       "**Interprétation** :\n\n"
+                                       "- Positif → Peut payer ses dettes CT\n\n"
+                                       "- Négatif → Risque de trésorerie\n\n"
+                                       "**Valeurs typiques** :\n\n"
+                                       "- \\> 0.20 : Excellente\n\n"
+                                       "- 0.10 - 0.20 : Correcte\n\n"
+                                       "- < 0.10 : Attention\n\n"
+                                       "- < 0 : Alerte 🚨")
                         st.metric("B - Retained Earnings / Total Assets", f"{z_results['B']:.3f}",
-                                  help="""**Mesure** : Profitabilité cumulée dans le temps
-
-**Calcul** : Bénéfices non distribués / Total Actifs
-
-**Interprétation** :
-
-• Élevé → Entreprise mature avec historique de profits
-
-• Faible → Jeune entreprise ou pertes accumulées
-
-**Valeurs typiques** :
-
-• > 0.40 : Très solide (entreprise mature)
-
-• 0.20 - 0.40 : Correcte
-
-• < 0.20 : Jeune ou en difficulté
-
-• < 0 : Pertes cumulées 🚨""")
+                                  help="**Mesure** : Profitabilité cumulée\n\n"
+                                       "**Calcul** : Bénéfices non distribués / Total Actifs\n\n"
+                                       "**Interprétation** :\n\n"
+                                       "- Élevé → Entreprise mature\n\n"
+                                       "- Faible → Jeune ou pertes\n\n"
+                                       "**Valeurs typiques** :\n\n"
+                                       "- \\> 0.40 : Très solide\n\n"
+                                       "- 0.20 - 0.40 : Correcte\n\n"
+                                       "- < 0.20 : En difficulté\n\n"
+                                       "- < 0 : Pertes cumulées 🚨")
                         st.metric("C - EBIT / Total Assets", f"{z_results['C']:.3f}",
-                                  help="""**Mesure** : Rentabilité opérationnelle des actifs (ROA opérationnel)
-
-**Calcul** : Résultat d'exploitation / Total Actifs
-
-**Interprétation** :
-
-• Élevé → Actifs bien utilisés pour générer des profits
-
-• Faible → Actifs sous-performants
-
-**Valeurs typiques** :
-
-• > 0.15 : Excellente rentabilité
-
-• 0.08 - 0.15 : Correcte
-
-• < 0.08 : Faible
-
-• < 0 : Pertes opérationnelles 🚨
-
-⚠️ Coefficient le plus élevé (×3.3) = Impact majeur sur le Z-Score""")
+                                  help="**Mesure** : ROA opérationnel\n\n"
+                                       "**Calcul** : EBIT / Total Actifs\n\n"
+                                       "**Interprétation** :\n\n"
+                                       "- Élevé → Actifs productifs\n\n"
+                                       "- Faible → Sous-performance\n\n"
+                                       "**Valeurs typiques** :\n\n"
+                                       "- \\> 0.15 : Excellente\n\n"
+                                       "- 0.08 - 0.15 : Correcte\n\n"
+                                       "- < 0.08 : Faible\n\n"
+                                       "- < 0 : Pertes 🚨\n\n"
+                                       "⚠️ Coefficient ×3.3 = Impact majeur")
                     with col_detail2:
                         st.metric("D - Market Cap / Total Liabilities", f"{z_results['D']:.3f}",
-                                  help="""**Mesure** : Coussin de sécurité du marché
-
-**Calcul** : Capitalisation boursière / Total Dettes
-
-**Interprétation** :
-
-• Élevé → Grande confiance des investisseurs, marge de sécurité
-
-• Faible → Dettes élevées par rapport à la valorisation
-
-**Valeurs typiques** :
-
-• > 2.0 : Excellente couverture
-
-• 1.0 - 2.0 : Correcte
-
-• 0.5 - 1.0 : Attention
-
-• < 0.5 : Dettes > Valeur de marché 🚨
-
-💡 Ce ratio peut fluctuer avec le cours de bourse""")
+                                  help="**Mesure** : Coussin de sécurité\n\n"
+                                       "**Calcul** : Market Cap / Total Dettes\n\n"
+                                       "**Interprétation** :\n\n"
+                                       "- Élevé → Confiance investisseurs\n\n"
+                                       "- Faible → Dettes élevées\n\n"
+                                       "**Valeurs typiques** :\n\n"
+                                       "- \\> 2.0 : Excellente\n\n"
+                                       "- 1.0 - 2.0 : Correcte\n\n"
+                                       "- 0.5 - 1.0 : Attention\n\n"
+                                       "- < 0.5 : Alerte 🚨\n\n"
+                                       "💡 Fluctue avec le cours")
                         st.metric("E - Sales / Total Assets", f"{z_results['E']:.3f}",
-                                  help="""**Mesure** : Rotation des actifs (efficacité commerciale)
-
-**Calcul** : Chiffre d'affaires / Total Actifs
-
-**Interprétation** :
-
-• Élevé → Actifs bien exploités pour générer du CA
-
-• Faible → Actifs sous-utilisés ou business model capitalistique
-
-**Valeurs typiques** (varient selon secteur) :
-
-• Retail/Distribution : 1.5 - 3.0
-
-• Industrie : 0.8 - 1.5
-
-• Tech/Software : 0.5 - 1.0
-
-• Utilities/Immobilier : 0.2 - 0.5
-
-⚠️ Comparer avec le secteur, pas en absolu""")
+                                  help="**Mesure** : Rotation des actifs\n\n"
+                                       "**Calcul** : CA / Total Actifs\n\n"
+                                       "**Interprétation** :\n\n"
+                                       "- Élevé → Actifs bien exploités\n\n"
+                                       "- Faible → Sous-utilisés\n\n"
+                                       "**Valeurs par secteur** :\n\n"
+                                       "- Retail : 1.5 - 3.0\n\n"
+                                       "- Industrie : 0.8 - 1.5\n\n"
+                                       "- Tech : 0.5 - 1.0\n\n"
+                                       "- Utilities : 0.2 - 0.5\n\n"
+                                       "⚠️ Comparer au secteur")
                     
                     st.markdown("""
                     ---
@@ -1177,37 +1116,21 @@ Le Z-Score d'Altman est un indicateur qui prédit la probabilité qu'une entrepr
                 st.markdown("")  # Espacement vertical
                 st.markdown(
                     "ℹ️",
-                    help="""**Qu'est-ce que c'est ?**
-
-Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondamentale d'une entreprise sur 9 critères financiers.
-
-**À quoi ça sert ?**
-
-• Identifier les entreprises solides
-
-• Filtrer les actions 'value' de qualité
-
-• Détecter l'amélioration ou la détérioration des fondamentaux
-
-**Périodes utilisées** 📅
-
-• **Profitabilité** : LTM (4 derniers trimestres)
-
-• **Comparaisons** : T0 vs T-4 (trimestre actuel vs même trimestre il y a 1 an)
-
-• **Bilan** : Dernier trimestre disponible
-
-**Comment l'interpréter ?**
-
-• 8-9 → Excellente qualité ✅
-
-• 6-7 → Bonne qualité 👍
-
-• 4-5 → Qualité moyenne ⚠️
-
-• 0-3 → Qualité faible 🚨
-
-*Créé par Joseph Piotroski (Stanford), ce score a prouvé sa capacité à identifier les actions sous-évaluées performantes.*"""
+                    help="**Qu'est-ce que c'est ?**\n\n"
+                         "Score de 0 à 9 évaluant la qualité fondamentale sur 9 critères financiers.\n\n"
+                         "**À quoi ça sert ?**\n\n"
+                         "- Identifier les entreprises solides\n\n"
+                         "- Filtrer les actions 'value' de qualité\n\n"
+                         "- Détecter l'évolution des fondamentaux\n\n"
+                         "**Périodes utilisées** 📅\n\n"
+                         "- **Profitabilité** : LTM (4 derniers trimestres)\n\n"
+                         "- **Comparaisons** : T0 vs T-4 (il y a 1 an)\n\n"
+                         "- **Bilan** : Dernier trimestre disponible\n\n"
+                         "**Comment l'interpréter ?**\n\n"
+                         "- 8-9 → Excellente ✅\n\n"
+                         "- 6-7 → Bonne 👍\n\n"
+                         "- 4-5 → Moyenne ⚠️\n\n"
+                         "- 0-3 → Faible 🚨"
                 )
             p_results = calculate_piotroski_score(ticker_obj)
             
@@ -1405,46 +1328,35 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
                 hoverinfo='skip'
             ))
         
-        # --- ZONE 1: Intervalle 80% (P10-P90) - Zone extérieure ---
-        fig_mc.add_trace(go.Scatter(
-            x=list(future_dates) + list(future_dates[::-1]),
-            y=list(percentile_90) + list(percentile_10[::-1]),
-            fill='toself',
-            fillcolor='rgba(65, 105, 225, 0.15)',  # Bleu royal transparent
-            line=dict(color='rgba(0,0,0,0)'),
-            name='Intervalle 80% (P10-P90)',
-            hoverinfo='skip'
-        ))
-        
-        # --- ZONE 2: Intervalle 50% (P25-P75) - Zone centrale ---
+        # --- ZONE: Intervalle 50% (P25-P75) - Zone centrale ---
         fig_mc.add_trace(go.Scatter(
             x=list(future_dates) + list(future_dates[::-1]),
             y=list(percentile_75) + list(percentile_25[::-1]),
             fill='toself',
-            fillcolor='rgba(65, 105, 225, 0.35)',  # Bleu plus dense
+            fillcolor='rgba(65, 105, 225, 0.25)',  # Bleu royal transparent
             line=dict(color='rgba(0,0,0,0)'),
             name='Intervalle 50% (P25-P75)',
             hoverinfo='skip'
         ))
         
-        # --- Ligne P90 (Optimiste) ---
+        # --- Ligne P75 (Optimiste) ---
         fig_mc.add_trace(go.Scatter(
             x=future_dates,
-            y=percentile_90,
+            y=percentile_75,
             mode='lines',
-            name=f'P90 (Optimiste): {percentile_90[-1]:.2f} {currency}',
+            name=f'P75 (Optimiste): {percentile_75[-1]:.2f} {currency}',
             line=dict(color='#27AE60', width=2, dash='dot'),
-            hovertemplate='P90: %{y:.2f}<extra></extra>'
+            hovertemplate='P75: %{y:.2f}<extra></extra>'
         ))
         
-        # --- Ligne P10 (Pessimiste) ---
+        # --- Ligne P25 (Pessimiste) ---
         fig_mc.add_trace(go.Scatter(
             x=future_dates,
-            y=percentile_10,
+            y=percentile_25,
             mode='lines',
-            name=f'P10 (Pessimiste): {percentile_10[-1]:.2f} {currency}',
+            name=f'P25 (Pessimiste): {percentile_25[-1]:.2f} {currency}',
             line=dict(color='#E74C3C', width=2, dash='dot'),
-            hovertemplate='P10: %{y:.2f}<extra></extra>'
+            hovertemplate='P25: %{y:.2f}<extra></extra>'
         ))
         
         # --- Ligne Médiane (P50) ---
@@ -1482,7 +1394,7 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
         
         # Points finaux sur les lignes clés
         final_points_x = [future_dates[-1]] * 3
-        final_points_y = [percentile_10[-1], percentile_50[-1], percentile_90[-1]]
+        final_points_y = [percentile_25[-1], percentile_50[-1], percentile_75[-1]]
         final_colors = ['#E74C3C', '#2980B9', '#27AE60']
         
         fig_mc.add_trace(go.Scatter(
@@ -1541,43 +1453,26 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
         st.plotly_chart(fig_mc, use_container_width=True)
         
         # --- CARTES SCÉNARIOS DE PRIX (juste après le graphique MC) ---
-        st.markdown("#### 📋 Scénarios de Prix Projetés")
+        st.markdown("#### 📋 Scénarios de Prix Projetés (Intervalle 50%)")
         
         # Valeurs brutes des percentiles
-        p10_raw = mc_stats['percentile_10']
+        p25_raw = mc_stats['percentile_25']
         p50_raw = mc_stats['median_final']
-        p90_raw = mc_stats['percentile_90']
-        
-        # Appliquer des bornes réalistes pour l'AFFICHAGE uniquement
-        # CAGR: +50% max, -50% min
-        max_cagr_display = 0.50  # 50% par an
-        min_cagr_display = -0.50  # -50% par an
-        
-        max_display_price = current_price * ((1 + max_cagr_display) ** num_years)
-        min_display_price = current_price * ((1 + min_cagr_display) ** num_years)
-        
-        # Valeurs affichées (plafonnées si nécessaire)
-        p10_display = max(p10_raw, min_display_price)
-        p90_display = min(p90_raw, max_display_price)
-        
-        # Détecter si des valeurs sont plafonnées
-        p10_capped = p10_raw < min_display_price
-        p90_capped = p90_raw > max_display_price
+        p75_raw = mc_stats['percentile_75']
         
         # Calcul des rendements pour les cartes
-        p10_ret_card = ((p10_display / current_price) - 1) * 100
+        p25_ret_card = ((p25_raw / current_price) - 1) * 100
         p50_ret_card = ((p50_raw / current_price) - 1) * 100
-        p90_ret_card = ((p90_display / current_price) - 1) * 100
+        p75_ret_card = ((p75_raw / current_price) - 1) * 100
         
         col_card1, col_card2, col_card3 = st.columns(3)
         
         with col_card1:
-            cap_note_p10 = " ⚠️" if p10_capped else ""
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%); padding: 15px; border-radius: 10px; text-align: center;">
-                <h4 style="color: #c62828; margin: 0;">🔴 Pessimiste (P10){cap_note_p10}</h4>
-                <h2 style="margin: 10px 0;">{p10_display:.2f} {currency}</h2>
-                <p style="margin: 0; color: #c62828; font-weight: bold;">{p10_ret_card:+.1f}%</p>
+                <h4 style="color: #c62828; margin: 0;">🔴 Pessimiste (P25)</h4>
+                <h2 style="margin: 10px 0;">{p25_raw:.2f} {currency}</h2>
+                <p style="margin: 0; color: #c62828; font-weight: bold;">{p25_ret_card:+.1f}%</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -1591,19 +1486,13 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
             """, unsafe_allow_html=True)
         
         with col_card3:
-            cap_note_p90 = " ⚠️" if p90_capped else ""
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); padding: 15px; border-radius: 10px; text-align: center;">
-                <h4 style="color: #2e7d32; margin: 0;">🟢 Optimiste (P90){cap_note_p90}</h4>
-                <h2 style="margin: 10px 0;">{p90_display:.2f} {currency}</h2>
-                <p style="margin: 0; color: #2e7d32; font-weight: bold;">{p90_ret_card:+.1f}%</p>
+                <h4 style="color: #2e7d32; margin: 0;">🟢 Optimiste (P75)</h4>
+                <h2 style="margin: 10px 0;">{p75_raw:.2f} {currency}</h2>
+                <p style="margin: 0; color: #2e7d32; font-weight: bold;">{p75_ret_card:+.1f}%</p>
             </div>
             """, unsafe_allow_html=True)
-        
-        # Note explicative si des valeurs sont plafonnées
-        if p10_capped or p90_capped:
-            st.caption(f"⚠️ Valeurs plafonnées aux rendements réalistes (CAGR {min_cagr_display*100:+.0f}% à {max_cagr_display*100:+.0f}%/an). "
-                      f"Valeurs brutes: P10={p10_raw:.2f}, P90={p90_raw:.2f}")
         
         st.caption(f"💡 Prix actuel: {current_price:.2f} {currency} | Probabilité de gain: {mc_stats['prob_gain']:.0f}%")
         
@@ -1622,8 +1511,8 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
         
         with col_mc2:
             st.metric(
-                label="Intervalle 80% (P10-P90)",
-                value=f"{mc_stats['percentile_10']:.2f} - {mc_stats['percentile_90']:.2f}",
+                label="Intervalle 50% (P25-P75)",
+                value=f"{mc_stats['percentile_25']:.2f} - {mc_stats['percentile_75']:.2f}",
                 delta=None
             )
         
@@ -1677,12 +1566,12 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
         with col_table2:
             st.markdown("""
             **Interprétation des résultats:**
-            - **P10 (Pessimiste)**: 90% des simulations dépassent ce prix
+            - **P25 (Pessimiste)**: 75% des simulations dépassent ce prix
             - **P50 (Médiane)**: 50% des simulations au-dessus/en-dessous
-            - **P90 (Optimiste)**: Seulement 10% des simulations dépassent ce prix
+            - **P75 (Optimiste)**: 25% des simulations dépassent ce prix
             
-            *Les scénarios extrêmes (P5/P95) sont exclus car ils représentent 
-            des événements rares peu pertinents pour la planification.*
+            *L'intervalle 50% (P25-P75) représente la fourchette où tombent 
+            la moitié des simulations - plus actionnable que P10-P90.*
             """)
         
         # === HISTOGRAMME SIMPLIFIÉ ===
@@ -1694,11 +1583,11 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
         returns_all = ((final_prices_all / current_price) - 1) * 100
         
         # Percentiles clés
-        p10_ret = ((mc_stats['percentile_10'] / current_price) - 1) * 100
+        p25_ret = ((mc_stats['percentile_25'] / current_price) - 1) * 100
         p50_ret = ((mc_stats['median_final'] / current_price) - 1) * 100
-        p90_ret = ((mc_stats['percentile_90'] / current_price) - 1) * 100
+        p75_ret = ((mc_stats['percentile_75'] / current_price) - 1) * 100
         
-        # Filtrer P10-P90 pour un affichage compact
+        # Filtrer P10-P90 pour un affichage compact (garder 80% des données pour visualisation)
         p10_val = np.percentile(returns_all, 10)
         p90_val = np.percentile(returns_all, 90)
         returns_filtered = returns_all[(returns_all >= p10_val) & (returns_all <= p90_val)]
@@ -1729,11 +1618,11 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
         fig_hist_price.add_vline(x=current_price, line_dash="solid", line_color="#F39C12", line_width=3)
         
         fig_hist_price.add_trace(go.Scatter(
-            x=[mc_stats['percentile_10'], mc_stats['percentile_10']], y=[0, 0], mode='lines',
-            name=f'🔴 P10: {mc_stats["percentile_10"]:.2f} {currency}',
+            x=[mc_stats['percentile_25'], mc_stats['percentile_25']], y=[0, 0], mode='lines',
+            name=f'🔴 P25: {mc_stats["percentile_25"]:.2f} {currency}',
             line=dict(color='#E74C3C', width=2, dash='dot')
         ))
-        fig_hist_price.add_vline(x=mc_stats['percentile_10'], line_dash="dot", line_color="#E74C3C", line_width=2)
+        fig_hist_price.add_vline(x=mc_stats['percentile_25'], line_dash="dot", line_color="#E74C3C", line_width=2)
         
         fig_hist_price.add_trace(go.Scatter(
             x=[mc_stats['median_final'], mc_stats['median_final']], y=[0, 0], mode='lines',
@@ -1743,11 +1632,11 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
         fig_hist_price.add_vline(x=mc_stats['median_final'], line_dash="dash", line_color="#2980B9", line_width=2)
         
         fig_hist_price.add_trace(go.Scatter(
-            x=[mc_stats['percentile_90'], mc_stats['percentile_90']], y=[0, 0], mode='lines',
-            name=f'🟢 P90: {mc_stats["percentile_90"]:.2f} {currency}',
+            x=[mc_stats['percentile_75'], mc_stats['percentile_75']], y=[0, 0], mode='lines',
+            name=f'🟢 P75: {mc_stats["percentile_75"]:.2f} {currency}',
             line=dict(color='#27AE60', width=2, dash='dot')
         ))
-        fig_hist_price.add_vline(x=mc_stats['percentile_90'], line_dash="dot", line_color="#27AE60", line_width=2)
+        fig_hist_price.add_vline(x=mc_stats['percentile_75'], line_dash="dot", line_color="#27AE60", line_width=2)
         
         fig_hist_price.update_layout(
             title=f'Distribution des Prix à {selected_horizon}',
@@ -1793,11 +1682,11 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
         fig_hist_ret.add_vline(x=0, line_dash="solid", line_color="#F39C12", line_width=3)
         
         fig_hist_ret.add_trace(go.Scatter(
-            x=[p10_ret, p10_ret], y=[0, 0], mode='lines',
-            name=f'🔴 P10: {p10_ret:+.1f}%',
+            x=[p25_ret, p25_ret], y=[0, 0], mode='lines',
+            name=f'🔴 P25: {p25_ret:+.1f}%',
             line=dict(color='#E74C3C', width=2, dash='dot')
         ))
-        fig_hist_ret.add_vline(x=p10_ret, line_dash="dot", line_color="#E74C3C", line_width=2)
+        fig_hist_ret.add_vline(x=p25_ret, line_dash="dot", line_color="#E74C3C", line_width=2)
         
         fig_hist_ret.add_trace(go.Scatter(
             x=[p50_ret, p50_ret], y=[0, 0], mode='lines',
@@ -1807,11 +1696,11 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
         fig_hist_ret.add_vline(x=p50_ret, line_dash="dash", line_color="#2980B9", line_width=2)
         
         fig_hist_ret.add_trace(go.Scatter(
-            x=[p90_ret, p90_ret], y=[0, 0], mode='lines',
-            name=f'🟢 P90: {p90_ret:+.1f}%',
+            x=[p75_ret, p75_ret], y=[0, 0], mode='lines',
+            name=f'🟢 P75: {p75_ret:+.1f}%',
             line=dict(color='#27AE60', width=2, dash='dot')
         ))
-        fig_hist_ret.add_vline(x=p90_ret, line_dash="dot", line_color="#27AE60", line_width=2)
+        fig_hist_ret.add_vline(x=p75_ret, line_dash="dot", line_color="#27AE60", line_width=2)
         
         fig_hist_ret.update_layout(
             title=f'Distribution des Rendements à {selected_horizon}',
@@ -1872,10 +1761,11 @@ Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondament
             Pour éviter les scénarios extrêmes, les valeurs **affichées** dans les cartes sont plafonnées.
             Les calculs de probabilités utilisent les vraies valeurs de simulation.
             
-            | Borne | CAGR | Multiple sur {num_years:.0f} an(s) |
-            |-------|------|-----------------------------------|
-            | Optimiste (P90) | +50%/an | x{(1.50 ** num_years):.2f} |
-            | Pessimiste (P10) | -50%/an | x{(0.50 ** num_years):.2f} |
+            | Percentile | Interprétation |
+            |------------|----------------|
+            | P25 (Pessimiste) | 75% des simulations sont au-dessus |
+            | P50 (Médiane) | 50% au-dessus / 50% en-dessous |
+            | P75 (Optimiste) | 25% des simulations sont au-dessus |
             
             ### Limites du modèle:
             - Suppose que les rendements futurs suivent la même distribution que les rendements passés
