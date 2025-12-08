@@ -987,16 +987,33 @@ def run_app():
                 st.markdown("")  # Espacement vertical
                 st.markdown(
                     "ℹ️",
-                    help="**Qu'est-ce que c'est ?**\n\n"
-                         "Le Z-Score d'Altman est un indicateur qui prédit la probabilité qu'une entreprise fasse faillite dans les 2 ans.\n\n"
-                         "**À quoi ça sert ?**\n\n"
-                         "• Évaluer la solidité financière\n"
-                         "• Détecter les entreprises en difficulté\n"
-                         "• Éviter les 'value traps' (actions bon marché mais risquées)\n\n"
-                         "**Comment l'interpréter ?**\n\n"
-                         "• Z > 2.99 → Entreprise saine ✅\n"
-                         "• 1.81 < Z < 2.99 → Zone grise ⚠️\n"
-                         "• Z < 1.81 → Risque de faillite 🚨"
+                    help="""**Qu'est-ce que c'est ?**
+
+Le Z-Score d'Altman est un indicateur qui prédit la probabilité qu'une entreprise fasse faillite dans les 2 ans.
+
+**À quoi ça sert ?**
+
+• Évaluer la solidité financière
+
+• Détecter les entreprises en difficulté
+
+• Éviter les 'value traps' (actions bon marché mais risquées)
+
+**Périodes utilisées** 📅
+
+• **Bilan** : Dernier trimestre disponible (T0)
+
+• **EBIT & CA** : LTM (4 derniers trimestres)
+
+• **Market Cap** : Valeur actuelle
+
+**Comment l'interpréter ?**
+
+• Z > 2.99 → Entreprise saine ✅
+
+• 1.81 < Z < 2.99 → Zone grise ⚠️
+
+• Z < 1.81 → Risque de faillite 🚨"""
                 )
             z_results = calculate_altman_zscore(ticker_obj)
             
@@ -1032,64 +1049,112 @@ def run_app():
                     col_detail1, col_detail2 = st.columns(2)
                     with col_detail1:
                         st.metric("A - Working Capital / Total Assets", f"{z_results['A']:.3f}",
-                                  help="**Mesure** : Liquidité à court terme\n\n"
-                                       "**Calcul** : (Actifs courants - Passifs courants) / Total Actifs\n\n"
-                                       "**Interprétation** :\n"
-                                       "• Positif → L'entreprise peut payer ses dettes à court terme\n"
-                                       "• Négatif → Risque de problèmes de trésorerie\n\n"
-                                       "**Valeurs typiques** :\n"
-                                       "• > 0.20 : Excellente liquidité\n"
-                                       "• 0.10 - 0.20 : Correcte\n"
-                                       "• < 0.10 : Attention, liquidité faible\n"
-                                       "• < 0 : Signal d'alerte 🚨")
+                                  help="""**Mesure** : Liquidité à court terme
+
+**Calcul** : (Actifs courants - Passifs courants) / Total Actifs
+
+**Interprétation** :
+
+• Positif → L'entreprise peut payer ses dettes à court terme
+
+• Négatif → Risque de problèmes de trésorerie
+
+**Valeurs typiques** :
+
+• > 0.20 : Excellente liquidité
+
+• 0.10 - 0.20 : Correcte
+
+• < 0.10 : Attention, liquidité faible
+
+• < 0 : Signal d'alerte 🚨""")
                         st.metric("B - Retained Earnings / Total Assets", f"{z_results['B']:.3f}",
-                                  help="**Mesure** : Profitabilité cumulée dans le temps\n\n"
-                                       "**Calcul** : Bénéfices non distribués / Total Actifs\n\n"
-                                       "**Interprétation** :\n"
-                                       "• Élevé → Entreprise mature avec historique de profits\n"
-                                       "• Faible → Jeune entreprise ou pertes accumulées\n\n"
-                                       "**Valeurs typiques** :\n"
-                                       "• > 0.40 : Très solide (entreprise mature)\n"
-                                       "• 0.20 - 0.40 : Correcte\n"
-                                       "• < 0.20 : Jeune ou en difficulté\n"
-                                       "• < 0 : Pertes cumulées 🚨")
+                                  help="""**Mesure** : Profitabilité cumulée dans le temps
+
+**Calcul** : Bénéfices non distribués / Total Actifs
+
+**Interprétation** :
+
+• Élevé → Entreprise mature avec historique de profits
+
+• Faible → Jeune entreprise ou pertes accumulées
+
+**Valeurs typiques** :
+
+• > 0.40 : Très solide (entreprise mature)
+
+• 0.20 - 0.40 : Correcte
+
+• < 0.20 : Jeune ou en difficulté
+
+• < 0 : Pertes cumulées 🚨""")
                         st.metric("C - EBIT / Total Assets", f"{z_results['C']:.3f}",
-                                  help="**Mesure** : Rentabilité opérationnelle des actifs (ROA opérationnel)\n\n"
-                                       "**Calcul** : Résultat d'exploitation / Total Actifs\n\n"
-                                       "**Interprétation** :\n"
-                                       "• Élevé → Actifs bien utilisés pour générer des profits\n"
-                                       "• Faible → Actifs sous-performants\n\n"
-                                       "**Valeurs typiques** :\n"
-                                       "• > 0.15 : Excellente rentabilité\n"
-                                       "• 0.08 - 0.15 : Correcte\n"
-                                       "• < 0.08 : Faible\n"
-                                       "• < 0 : Pertes opérationnelles 🚨\n\n"
-                                       "⚠️ Coefficient le plus élevé (×3.3) = Impact majeur sur le Z-Score")
+                                  help="""**Mesure** : Rentabilité opérationnelle des actifs (ROA opérationnel)
+
+**Calcul** : Résultat d'exploitation / Total Actifs
+
+**Interprétation** :
+
+• Élevé → Actifs bien utilisés pour générer des profits
+
+• Faible → Actifs sous-performants
+
+**Valeurs typiques** :
+
+• > 0.15 : Excellente rentabilité
+
+• 0.08 - 0.15 : Correcte
+
+• < 0.08 : Faible
+
+• < 0 : Pertes opérationnelles 🚨
+
+⚠️ Coefficient le plus élevé (×3.3) = Impact majeur sur le Z-Score""")
                     with col_detail2:
                         st.metric("D - Market Cap / Total Liabilities", f"{z_results['D']:.3f}",
-                                  help="**Mesure** : Coussin de sécurité du marché\n\n"
-                                       "**Calcul** : Capitalisation boursière / Total Dettes\n\n"
-                                       "**Interprétation** :\n"
-                                       "• Élevé → Grande confiance des investisseurs, marge de sécurité\n"
-                                       "• Faible → Dettes élevées par rapport à la valorisation\n\n"
-                                       "**Valeurs typiques** :\n"
-                                       "• > 2.0 : Excellente couverture\n"
-                                       "• 1.0 - 2.0 : Correcte\n"
-                                       "• 0.5 - 1.0 : Attention\n"
-                                       "• < 0.5 : Dettes > Valeur de marché 🚨\n\n"
-                                       "💡 Ce ratio peut fluctuer avec le cours de bourse")
+                                  help="""**Mesure** : Coussin de sécurité du marché
+
+**Calcul** : Capitalisation boursière / Total Dettes
+
+**Interprétation** :
+
+• Élevé → Grande confiance des investisseurs, marge de sécurité
+
+• Faible → Dettes élevées par rapport à la valorisation
+
+**Valeurs typiques** :
+
+• > 2.0 : Excellente couverture
+
+• 1.0 - 2.0 : Correcte
+
+• 0.5 - 1.0 : Attention
+
+• < 0.5 : Dettes > Valeur de marché 🚨
+
+💡 Ce ratio peut fluctuer avec le cours de bourse""")
                         st.metric("E - Sales / Total Assets", f"{z_results['E']:.3f}",
-                                  help="**Mesure** : Rotation des actifs (efficacité commerciale)\n\n"
-                                       "**Calcul** : Chiffre d'affaires / Total Actifs\n\n"
-                                       "**Interprétation** :\n"
-                                       "• Élevé → Actifs bien exploités pour générer du CA\n"
-                                       "• Faible → Actifs sous-utilisés ou business model capitalistique\n\n"
-                                       "**Valeurs typiques** (varient selon secteur) :\n"
-                                       "• Retail/Distribution : 1.5 - 3.0\n"
-                                       "• Industrie : 0.8 - 1.5\n"
-                                       "• Tech/Software : 0.5 - 1.0\n"
-                                       "• Utilities/Immobilier : 0.2 - 0.5\n\n"
-                                       "⚠️ Comparer avec le secteur, pas en absolu")
+                                  help="""**Mesure** : Rotation des actifs (efficacité commerciale)
+
+**Calcul** : Chiffre d'affaires / Total Actifs
+
+**Interprétation** :
+
+• Élevé → Actifs bien exploités pour générer du CA
+
+• Faible → Actifs sous-utilisés ou business model capitalistique
+
+**Valeurs typiques** (varient selon secteur) :
+
+• Retail/Distribution : 1.5 - 3.0
+
+• Industrie : 0.8 - 1.5
+
+• Tech/Software : 0.5 - 1.0
+
+• Utilities/Immobilier : 0.2 - 0.5
+
+⚠️ Comparer avec le secteur, pas en absolu""")
                     
                     st.markdown("""
                     ---
@@ -1112,18 +1177,37 @@ def run_app():
                 st.markdown("")  # Espacement vertical
                 st.markdown(
                     "ℹ️",
-                    help="**Qu'est-ce que c'est ?**\n\n"
-                         "Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondamentale d'une entreprise sur 9 critères financiers.\n\n"
-                         "**À quoi ça sert ?**\n\n"
-                         "• Identifier les entreprises solides\n"
-                         "• Filtrer les actions 'value' de qualité\n"
-                         "• Détecter l'amélioration ou la détérioration des fondamentaux\n\n"
-                         "**Comment l'interpréter ?**\n\n"
-                         "• 8-9 → Excellente qualité ✅\n"
-                         "• 6-7 → Bonne qualité 👍\n"
-                         "• 4-5 → Qualité moyenne ⚠️\n"
-                         "• 0-3 → Qualité faible 🚨\n\n"
-                         "*Créé par Joseph Piotroski (Stanford), ce score a prouvé sa capacité à identifier les actions sous-évaluées performantes.*"
+                    help="""**Qu'est-ce que c'est ?**
+
+Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondamentale d'une entreprise sur 9 critères financiers.
+
+**À quoi ça sert ?**
+
+• Identifier les entreprises solides
+
+• Filtrer les actions 'value' de qualité
+
+• Détecter l'amélioration ou la détérioration des fondamentaux
+
+**Périodes utilisées** 📅
+
+• **Profitabilité** : LTM (4 derniers trimestres)
+
+• **Comparaisons** : T0 vs T-4 (trimestre actuel vs même trimestre il y a 1 an)
+
+• **Bilan** : Dernier trimestre disponible
+
+**Comment l'interpréter ?**
+
+• 8-9 → Excellente qualité ✅
+
+• 6-7 → Bonne qualité 👍
+
+• 4-5 → Qualité moyenne ⚠️
+
+• 0-3 → Qualité faible 🚨
+
+*Créé par Joseph Piotroski (Stanford), ce score a prouvé sa capacité à identifier les actions sous-évaluées performantes.*"""
                 )
             p_results = calculate_piotroski_score(ticker_obj)
             
