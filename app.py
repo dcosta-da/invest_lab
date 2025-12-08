@@ -187,6 +187,7 @@ def calculate_monte_carlo_statistics(price_paths: np.ndarray) -> dict:
         'percentile_75': np.percentile(final_prices, 75),
         'percentile_90': np.percentile(final_prices, 90),
         'prob_gain': np.mean(final_prices > initial_price) * 100,
+        'prob_gain_15': np.mean(final_prices >= initial_price * 1.15) * 100,  # Gain >= 15%
         'prob_double': np.mean(final_prices > 2 * initial_price) * 100,
         'prob_loss_50': np.mean(final_prices < 0.5 * initial_price) * 100,
     }
@@ -247,6 +248,201 @@ def calculate_roic(q_financials: pd.DataFrame, q_balance: pd.DataFrame) -> dict 
         'Dates_LTM': q_financials.columns[0:4].strftime('%Y-%m-%d').tolist(),
         'Dates_Bilan': [date_bilan_t0, date_bilan_t4]
     }
+
+
+# --- FONCTION ALTMAN Z-SCORE ---
+def calculate_altman_zscore(ticker_obj) -> dict | None:
+    """
+    Calcule l'Altman Z-Score pour évaluer le risque de faillite.
+    Z = 1.2*A + 1.4*B + 3.3*C + 0.6*D + 1.0*E
+    """
+    try:
+        balance = ticker_obj.quarterly_balance_sheet
+        financials = ticker_obj.quarterly_financials
+        info = ticker_obj.info
+        
+        if balance.empty or financials.empty:
+            return None
+        
+        # Données du bilan (dernier trimestre)
+        total_assets = balance.loc['Total Assets'].iloc[0] if 'Total Assets' in balance.index else 0
+        
+        if total_assets <= 0:
+            return None
+        
+        # Working Capital = Current Assets - Current Liabilities
+        current_assets = balance.loc['Current Assets'].iloc[0] if 'Current Assets' in balance.index else 0
+        current_liabilities = balance.loc['Current Liabilities'].iloc[0] if 'Current Liabilities' in balance.index else 0
+        working_capital = current_assets - current_liabilities
+        
+        # Retained Earnings
+        retained_earnings = balance.loc['Retained Earnings'].iloc[0] if 'Retained Earnings' in balance.index else 0
+        
+        # EBIT (LTM)
+        ebit = financials.loc['EBIT'].iloc[0:4].sum() if 'EBIT' in financials.index else 0
+        
+        # Market Cap et Total Liabilities
+        market_cap = info.get('marketCap', 0)
+        total_liabilities = balance.loc['Total Liabilities Net Minority Interest'].iloc[0] if 'Total Liabilities Net Minority Interest' in balance.index else 0
+        
+        # Revenue (LTM)
+        revenue_key = 'Total Revenue' if 'Total Revenue' in financials.index else 'Total Revenues'
+        revenue = financials.loc[revenue_key].iloc[0:4].sum() if revenue_key in financials.index else 0
+        
+        # Calcul des ratios
+        A = working_capital / total_assets
+        B = retained_earnings / total_assets
+        C = ebit / total_assets
+        D = market_cap / total_liabilities if total_liabilities > 0 else 0
+        E = revenue / total_assets
+        
+        # Z-Score
+        z_score = 1.2*A + 1.4*B + 3.3*C + 0.6*D + 1.0*E
+        
+        # Interprétation
+        if z_score > 2.99:
+            zone = "Safe"
+            color = "#27AE60"
+        elif z_score > 1.81:
+            zone = "Grey"
+            color = "#F39C12"
+        else:
+            zone = "Distress"
+            color = "#E74C3C"
+        
+        return {
+            'z_score': z_score,
+            'zone': zone,
+            'color': color,
+            'A': A, 'B': B, 'C': C, 'D': D, 'E': E
+        }
+        
+    except Exception as e:
+        return {'error': str(e)}
+
+
+# --- FONCTION PIOTROSKI F-SCORE ---
+def calculate_piotroski_score(ticker_obj) -> dict | None:
+    """
+    Calcule le Piotroski F-Score (0-9) pour évaluer la solidité financière.
+    """
+    try:
+        balance = ticker_obj.quarterly_balance_sheet
+        financials = ticker_obj.quarterly_financials
+        cashflow = ticker_obj.quarterly_cashflow
+        
+        if balance.empty or financials.empty or len(balance.columns) < 5:
+            return None
+        
+        score = 0
+        details = {}
+        
+        # Données actuelles (T0) et précédentes (T-4)
+        total_assets_t0 = balance.loc['Total Assets'].iloc[0] if 'Total Assets' in balance.index else 0
+        total_assets_t4 = balance.loc['Total Assets'].iloc[4] if 'Total Assets' in balance.index and len(balance.columns) > 4 else total_assets_t0
+        avg_assets = (total_assets_t0 + total_assets_t4) / 2
+        
+        # 1. Net Income > 0
+        net_income = financials.loc['Net Income'].iloc[0:4].sum() if 'Net Income' in financials.index else 0
+        details['net_income_positive'] = net_income > 0
+        if details['net_income_positive']:
+            score += 1
+        
+        # 2. ROA > 0
+        roa = net_income / avg_assets if avg_assets > 0 else 0
+        details['roa_positive'] = roa > 0
+        if details['roa_positive']:
+            score += 1
+        
+        # 3. Operating Cash Flow > 0
+        if not cashflow.empty and 'Operating Cash Flow' in cashflow.index:
+            ocf = cashflow.loc['Operating Cash Flow'].iloc[0:4].sum()
+        elif not cashflow.empty and 'Total Cash From Operating Activities' in cashflow.index:
+            ocf = cashflow.loc['Total Cash From Operating Activities'].iloc[0:4].sum()
+        else:
+            ocf = 0
+        details['ocf_positive'] = ocf > 0
+        if details['ocf_positive']:
+            score += 1
+        
+        # 4. Cash Flow > Net Income (Quality of earnings)
+        details['ocf_gt_ni'] = ocf > net_income
+        if details['ocf_gt_ni']:
+            score += 1
+        
+        # 5. Long-term debt ratio decreasing
+        lt_debt_t0 = balance.loc['Long Term Debt'].iloc[0] if 'Long Term Debt' in balance.index else 0
+        lt_debt_t4 = balance.loc['Long Term Debt'].iloc[4] if 'Long Term Debt' in balance.index and len(balance.columns) > 4 else lt_debt_t0
+        details['debt_decreasing'] = lt_debt_t0 <= lt_debt_t4
+        if details['debt_decreasing']:
+            score += 1
+        
+        # 6. Current ratio increasing
+        current_assets_t0 = balance.loc['Current Assets'].iloc[0] if 'Current Assets' in balance.index else 0
+        current_liab_t0 = balance.loc['Current Liabilities'].iloc[0] if 'Current Liabilities' in balance.index else 1
+        current_assets_t4 = balance.loc['Current Assets'].iloc[4] if 'Current Assets' in balance.index and len(balance.columns) > 4 else 0
+        current_liab_t4 = balance.loc['Current Liabilities'].iloc[4] if 'Current Liabilities' in balance.index and len(balance.columns) > 4 else 1
+        
+        cr_t0 = current_assets_t0 / current_liab_t0 if current_liab_t0 > 0 else 0
+        cr_t4 = current_assets_t4 / current_liab_t4 if current_liab_t4 > 0 else 0
+        details['current_ratio_up'] = cr_t0 >= cr_t4
+        if details['current_ratio_up']:
+            score += 1
+        
+        # 7. No new shares issued
+        shares_t0 = balance.loc['Ordinary Shares Number'].iloc[0] if 'Ordinary Shares Number' in balance.index else 0
+        shares_t4 = balance.loc['Ordinary Shares Number'].iloc[4] if 'Ordinary Shares Number' in balance.index and len(balance.columns) > 4 else shares_t0
+        details['no_dilution'] = shares_t0 <= shares_t4 * 1.02  # 2% tolerance
+        if details['no_dilution']:
+            score += 1
+        
+        # 8. Gross margin increasing
+        if 'Gross Profit' in financials.index:
+            revenue_key = 'Total Revenue' if 'Total Revenue' in financials.index else 'Total Revenues'
+            gp_t0 = financials.loc['Gross Profit'].iloc[0]
+            rev_t0 = financials.loc[revenue_key].iloc[0] if revenue_key in financials.index else 1
+            gp_t4 = financials.loc['Gross Profit'].iloc[4] if len(financials.columns) > 4 else gp_t0
+            rev_t4 = financials.loc[revenue_key].iloc[4] if revenue_key in financials.index and len(financials.columns) > 4 else 1
+            
+            gm_t0 = gp_t0 / rev_t0 if rev_t0 > 0 else 0
+            gm_t4 = gp_t4 / rev_t4 if rev_t4 > 0 else 0
+            details['gross_margin_up'] = gm_t0 >= gm_t4
+        else:
+            details['gross_margin_up'] = True  # Default to pass if not available
+        if details['gross_margin_up']:
+            score += 1
+        
+        # 9. Asset turnover increasing
+        revenue_key = 'Total Revenue' if 'Total Revenue' in financials.index else 'Total Revenues'
+        rev_ltm = financials.loc[revenue_key].iloc[0:4].sum() if revenue_key in financials.index else 0
+        at_t0 = rev_ltm / avg_assets if avg_assets > 0 else 0
+        details['asset_turnover_up'] = at_t0 > 0  # Simplified
+        if details['asset_turnover_up']:
+            score += 1
+        
+        # Interprétation
+        if score >= 8:
+            interpretation = "Excellent"
+            color = "#27AE60"
+        elif score >= 6:
+            interpretation = "Bon"
+            color = "#2ECC71"
+        elif score >= 4:
+            interpretation = "Moyen"
+            color = "#F39C12"
+        else:
+            interpretation = "Faible"
+            color = "#E74C3C"
+        
+        return {
+            'score': score,
+            'interpretation': interpretation,
+            'color': color,
+            'details': details
+        }
+        
+    except Exception as e:
+        return {'error': str(e)}
 
 
 # --- Fonction Principale pour l'Application ---
@@ -376,29 +572,56 @@ def run_app():
         sigma_percent_1 = (np.exp(sigma_log) - 1) * 100
         sigma_percent_2 = (np.exp(2 * sigma_log) - 1) * 100
 
-        # --- Affichage des Métriques Clés (Code inchangé) ---
-        col1, col2, col3, col4 = st.columns(4)
+        # Récupérer le Beta de l'action
+        beta = company_info.get('beta', None)
+        
+        # --- Affichage des Métriques Clés ---
+        col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
             st.metric(
-                label=f"Taux de Croissance Annuel Estimé (composé)",
-                value=f"{taux_croissance_annuel:.2f} %"
+                label=f"Taux de Croissance Annuel Estimé",
+                value=f"{taux_croissance_annuel:.2f} %",
+                help="CAGR (Compound Annual Growth Rate) estimé à partir de la régression log-linéaire sur les prix historiques. "
+                     "Représente le rendement annuel moyen composé si la tendance passée se poursuit."
             )
         with col2:
             st.metric(
-                label=f"Volatilité (Écart de Prix +/-1σ par {period_label})",
-                value=f"{sigma_percent_1:.2f} %"
+                label=f"Volatilité (+/-1σ / {period_label})",
+                value=f"{sigma_percent_1:.2f} %",
+                help="Écart-type à 1 sigma : environ 68% des variations de prix par période sont dans cette fourchette. "
+                     "Plus cette valeur est élevée, plus l'action est volatile."
             )
         with col3:
             st.metric(
-                label=f"Volatilité (Écart de Prix +/-2σ par {period_label})",
-                value=f"{sigma_percent_2:.2f} %"
+                label=f"Volatilité (+/-2σ / {period_label})",
+                value=f"{sigma_percent_2:.2f} %",
+                help="Écart-type à 2 sigma : environ 95% des variations de prix par période sont dans cette fourchette. "
+                     "Représente les mouvements extrêmes mais encore probables."
             )
         with col4:
             st.metric(
-                label=f"R² du Modèle (sur Log-Prix)",
-                value=f"{r_squared:.4f}"
+                label=f"R² du Modèle",
+                value=f"{r_squared:.4f}",
+                help="Coefficient de détermination (0 à 1). Mesure la qualité de l'ajustement de la tendance exponentielle. "
+                     "R² proche de 1 = tendance forte et régulière. R² < 0.5 = tendance faible ou irrégulière."
             )
+        with col5:
+            if beta is not None:
+                st.metric(
+                    label="Beta (β)",
+                    value=f"{beta:.2f}",
+                    help="Mesure la sensibilité de l'action par rapport à son indice de référence "
+                         "(S&P 500 pour les US, CAC 40 pour la France, etc.). "
+                         "β = 1 : suit le marché. β > 1 : plus volatil (amplifie les mouvements). "
+                         "β < 1 : moins volatil (amortit les mouvements). β < 0 : corrélation inverse."
+                )
+            else:
+                st.metric(
+                    label="Beta (β)",
+                    value="N/A",
+                    help="Le beta n'est pas disponible pour cette action."
+                )
 
         st.markdown("---")
 
@@ -743,6 +966,234 @@ def run_app():
         except Exception as e:
             st.error(f"Erreur inattendue lors de l'accés aux données financiéres de YFinance pour ROIC LTM: {e}")
 
+        # --- NOUVELLE SECTION : ALTMAN Z-SCORE ET PIOTROSKI F-SCORE ---
+        st.markdown("---")
+        st.markdown("<h2 style='text-align: center;'>📊 Scores de Santé Financière</h2>", unsafe_allow_html=True)
+        
+        st.markdown("""
+        Ces deux scores complémentaires évaluent la solidité financière de l'entreprise :
+        - **Altman Z-Score** : Prédit le risque de faillite
+        - **Piotroski F-Score** : Évalue la qualité fondamentale
+        """)
+        
+        col_z, col_p = st.columns(2)
+        
+        # --- ALTMAN Z-SCORE ---
+        with col_z:
+            col_title_z, col_help_z = st.columns([0.85, 0.15])
+            with col_title_z:
+                st.markdown("### 📉 Altman Z-Score")
+            with col_help_z:
+                st.markdown("")  # Espacement vertical
+                st.markdown(
+                    "ℹ️",
+                    help="**Qu'est-ce que c'est ?**\n\n"
+                         "Le Z-Score d'Altman est un indicateur qui prédit la probabilité qu'une entreprise fasse faillite dans les 2 ans.\n\n"
+                         "**À quoi ça sert ?**\n\n"
+                         "• Évaluer la solidité financière\n"
+                         "• Détecter les entreprises en difficulté\n"
+                         "• Éviter les 'value traps' (actions bon marché mais risquées)\n\n"
+                         "**Comment l'interpréter ?**\n\n"
+                         "• Z > 2.99 → Entreprise saine ✅\n"
+                         "• 1.81 < Z < 2.99 → Zone grise ⚠️\n"
+                         "• Z < 1.81 → Risque de faillite 🚨"
+                )
+            z_results = calculate_altman_zscore(ticker_obj)
+            
+            if z_results and 'error' not in z_results:
+                z_score = z_results['z_score']
+                zone = z_results['zone']
+                color = z_results['color']
+                
+                # Affichage du score principal
+                st.markdown(f"""
+                <div style='text-align: center; padding: 20px; background: linear-gradient(135deg, {color}22, {color}44); border-radius: 15px; border: 2px solid {color};'>
+                    <h1 style='color: {color}; margin: 0; font-size: 3em;'>{z_score:.2f}</h1>
+                    <p style='color: {color}; margin: 5px 0 0 0; font-size: 1.2em; font-weight: bold;'>Zone: {zone}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("")
+                
+                # Interprétation
+                if zone == "Safe":
+                    st.success("✅ **Zone de sécurité** (Z > 2.99) : Faible risque de faillite")
+                elif zone == "Grey":
+                    st.warning("⚠️ **Zone grise** (1.81 < Z < 2.99) : Risque modéré, surveillance recommandée")
+                else:
+                    st.error("🚨 **Zone de détresse** (Z < 1.81) : Risque élevé de difficultés financières")
+                
+                # Détails dans un expander
+                with st.expander("📖 Détails du calcul"):
+                    st.markdown("""
+                    **Formule** : Z = 1.2×A + 1.4×B + 3.3×C + 0.6×D + 1.0×E
+                    """)
+                    
+                    col_detail1, col_detail2 = st.columns(2)
+                    with col_detail1:
+                        st.metric("A - Working Capital / Total Assets", f"{z_results['A']:.3f}",
+                                  help="**Mesure** : Liquidité à court terme\n\n"
+                                       "**Calcul** : (Actifs courants - Passifs courants) / Total Actifs\n\n"
+                                       "**Interprétation** :\n"
+                                       "• Positif → L'entreprise peut payer ses dettes à court terme\n"
+                                       "• Négatif → Risque de problèmes de trésorerie\n\n"
+                                       "**Valeurs typiques** :\n"
+                                       "• > 0.20 : Excellente liquidité\n"
+                                       "• 0.10 - 0.20 : Correcte\n"
+                                       "• < 0.10 : Attention, liquidité faible\n"
+                                       "• < 0 : Signal d'alerte 🚨")
+                        st.metric("B - Retained Earnings / Total Assets", f"{z_results['B']:.3f}",
+                                  help="**Mesure** : Profitabilité cumulée dans le temps\n\n"
+                                       "**Calcul** : Bénéfices non distribués / Total Actifs\n\n"
+                                       "**Interprétation** :\n"
+                                       "• Élevé → Entreprise mature avec historique de profits\n"
+                                       "• Faible → Jeune entreprise ou pertes accumulées\n\n"
+                                       "**Valeurs typiques** :\n"
+                                       "• > 0.40 : Très solide (entreprise mature)\n"
+                                       "• 0.20 - 0.40 : Correcte\n"
+                                       "• < 0.20 : Jeune ou en difficulté\n"
+                                       "• < 0 : Pertes cumulées 🚨")
+                        st.metric("C - EBIT / Total Assets", f"{z_results['C']:.3f}",
+                                  help="**Mesure** : Rentabilité opérationnelle des actifs (ROA opérationnel)\n\n"
+                                       "**Calcul** : Résultat d'exploitation / Total Actifs\n\n"
+                                       "**Interprétation** :\n"
+                                       "• Élevé → Actifs bien utilisés pour générer des profits\n"
+                                       "• Faible → Actifs sous-performants\n\n"
+                                       "**Valeurs typiques** :\n"
+                                       "• > 0.15 : Excellente rentabilité\n"
+                                       "• 0.08 - 0.15 : Correcte\n"
+                                       "• < 0.08 : Faible\n"
+                                       "• < 0 : Pertes opérationnelles 🚨\n\n"
+                                       "⚠️ Coefficient le plus élevé (×3.3) = Impact majeur sur le Z-Score")
+                    with col_detail2:
+                        st.metric("D - Market Cap / Total Liabilities", f"{z_results['D']:.3f}",
+                                  help="**Mesure** : Coussin de sécurité du marché\n\n"
+                                       "**Calcul** : Capitalisation boursière / Total Dettes\n\n"
+                                       "**Interprétation** :\n"
+                                       "• Élevé → Grande confiance des investisseurs, marge de sécurité\n"
+                                       "• Faible → Dettes élevées par rapport à la valorisation\n\n"
+                                       "**Valeurs typiques** :\n"
+                                       "• > 2.0 : Excellente couverture\n"
+                                       "• 1.0 - 2.0 : Correcte\n"
+                                       "• 0.5 - 1.0 : Attention\n"
+                                       "• < 0.5 : Dettes > Valeur de marché 🚨\n\n"
+                                       "💡 Ce ratio peut fluctuer avec le cours de bourse")
+                        st.metric("E - Sales / Total Assets", f"{z_results['E']:.3f}",
+                                  help="**Mesure** : Rotation des actifs (efficacité commerciale)\n\n"
+                                       "**Calcul** : Chiffre d'affaires / Total Actifs\n\n"
+                                       "**Interprétation** :\n"
+                                       "• Élevé → Actifs bien exploités pour générer du CA\n"
+                                       "• Faible → Actifs sous-utilisés ou business model capitalistique\n\n"
+                                       "**Valeurs typiques** (varient selon secteur) :\n"
+                                       "• Retail/Distribution : 1.5 - 3.0\n"
+                                       "• Industrie : 0.8 - 1.5\n"
+                                       "• Tech/Software : 0.5 - 1.0\n"
+                                       "• Utilities/Immobilier : 0.2 - 0.5\n\n"
+                                       "⚠️ Comparer avec le secteur, pas en absolu")
+                    
+                    st.markdown("""
+                    ---
+                    **Interprétation des zones :**
+                    - **Z > 2.99** : Zone de sécurité - Probabilité de faillite très faible
+                    - **1.81 < Z < 2.99** : Zone grise - Situation à surveiller
+                    - **Z < 1.81** : Zone de détresse - Risque significatif de difficultés
+                    
+                    ⚠️ *Ce score est optimisé pour les entreprises manufacturières. Les résultats peuvent varier pour les services financiers et tech.*
+                    """)
+            else:
+                st.info("Données insuffisantes pour calculer l'Altman Z-Score")
+        
+        # --- PIOTROSKI F-SCORE ---
+        with col_p:
+            col_title_p, col_help_p = st.columns([0.85, 0.15])
+            with col_title_p:
+                st.markdown("### 📈 Piotroski F-Score")
+            with col_help_p:
+                st.markdown("")  # Espacement vertical
+                st.markdown(
+                    "ℹ️",
+                    help="**Qu'est-ce que c'est ?**\n\n"
+                         "Le F-Score de Piotroski est un score de 0 à 9 qui évalue la qualité fondamentale d'une entreprise sur 9 critères financiers.\n\n"
+                         "**À quoi ça sert ?**\n\n"
+                         "• Identifier les entreprises solides\n"
+                         "• Filtrer les actions 'value' de qualité\n"
+                         "• Détecter l'amélioration ou la détérioration des fondamentaux\n\n"
+                         "**Comment l'interpréter ?**\n\n"
+                         "• 8-9 → Excellente qualité ✅\n"
+                         "• 6-7 → Bonne qualité 👍\n"
+                         "• 4-5 → Qualité moyenne ⚠️\n"
+                         "• 0-3 → Qualité faible 🚨\n\n"
+                         "*Créé par Joseph Piotroski (Stanford), ce score a prouvé sa capacité à identifier les actions sous-évaluées performantes.*"
+                )
+            p_results = calculate_piotroski_score(ticker_obj)
+            
+            if p_results and 'error' not in p_results:
+                f_score = p_results['score']
+                interpretation = p_results['interpretation']
+                color = p_results['color']
+                details = p_results['details']
+                
+                # Affichage du score principal
+                st.markdown(f"""
+                <div style='text-align: center; padding: 20px; background: linear-gradient(135deg, {color}22, {color}44); border-radius: 15px; border: 2px solid {color};'>
+                    <h1 style='color: {color}; margin: 0; font-size: 3em;'>{f_score}/9</h1>
+                    <p style='color: {color}; margin: 5px 0 0 0; font-size: 1.2em; font-weight: bold;'>{interpretation}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("")
+                
+                # Interprétation
+                if f_score >= 8:
+                    st.success("✅ **Excellente santé** : Entreprise très solide sur tous les critères")
+                elif f_score >= 6:
+                    st.success("👍 **Bonne santé** : Fondamentaux globalement positifs")
+                elif f_score >= 4:
+                    st.warning("⚠️ **Santé moyenne** : Quelques points faibles à surveiller")
+                else:
+                    st.error("🚨 **Santé fragile** : Nombreux signaux d'alerte")
+                
+                # Détails dans un expander
+                with st.expander("📖 Détails des 9 critères"):
+                    st.markdown("**Profitabilité (4 points)**")
+                    col_c1, col_c2 = st.columns(2)
+                    with col_c1:
+                        st.markdown(f"{'✅' if details.get('net_income_positive') else '❌'} Résultat net positif")
+                        st.markdown(f"{'✅' if details.get('roa_positive') else '❌'} ROA positif")
+                    with col_c2:
+                        st.markdown(f"{'✅' if details.get('ocf_positive') else '❌'} Cash-flow opérationnel positif")
+                        st.markdown(f"{'✅' if details.get('ocf_gt_ni') else '❌'} Cash-flow > Résultat net")
+                    
+                    st.markdown("---")
+                    st.markdown("**Solidité financière (3 points)**")
+                    col_c3, col_c4 = st.columns(2)
+                    with col_c3:
+                        st.markdown(f"{'✅' if details.get('debt_decreasing') else '❌'} Dette LT en baisse")
+                        st.markdown(f"{'✅' if details.get('current_ratio_up') else '❌'} Ratio courant en hausse")
+                    with col_c4:
+                        st.markdown(f"{'✅' if details.get('no_dilution') else '❌'} Pas de dilution (actions)")
+                    
+                    st.markdown("---")
+                    st.markdown("**Efficacité opérationnelle (2 points)**")
+                    col_c5, col_c6 = st.columns(2)
+                    with col_c5:
+                        st.markdown(f"{'✅' if details.get('gross_margin_up') else '❌'} Marge brute en hausse")
+                    with col_c6:
+                        st.markdown(f"{'✅' if details.get('asset_turnover_up') else '❌'} Rotation actifs en hausse")
+                    
+                    st.markdown("""
+                    ---
+                    **Interprétation :**
+                    - **8-9** : Excellente qualité, souvent surperformance future
+                    - **6-7** : Bonne qualité, fondamentaux solides
+                    - **4-5** : Qualité moyenne, analyse approfondie nécessaire
+                    - **0-3** : Qualité faible, signaux d'alerte multiples
+                    
+                    *Développé par Joseph Piotroski (Stanford) en 2000, ce score a démontré une capacité prédictive pour identifier les actions value sous-évaluées.*
+                    """)
+            else:
+                st.info("Données insuffisantes pour calculer le Piotroski F-Score")
+
         # --- NOUVELLE SECTION : SIMULATION MONTE CARLO ---
         st.markdown("---")
         st.markdown("<h2 style='text-align: center;'>🎲 Simulation Monte Carlo - Projection des Prix</h2>", unsafe_allow_html=True)
@@ -1075,7 +1526,7 @@ def run_app():
         # Affichage des statistiques Monte Carlo
         st.markdown("### 📊 Statistiques de la Simulation")
         
-        col_mc1, col_mc2, col_mc3, col_mc4 = st.columns(4)
+        col_mc1, col_mc2, col_mc3, col_mc4, col_mc5 = st.columns(5)
         
         with col_mc1:
             rendement_median = ((mc_stats['median_final'] / current_price) - 1) * 100
@@ -1094,12 +1545,19 @@ def run_app():
         
         with col_mc3:
             st.metric(
-                label="Probabilité de Gain",
+                label="Prob. de Gain (>0%)",
                 value=f"{mc_stats['prob_gain']:.1f}%",
                 delta=None
             )
         
         with col_mc4:
+            st.metric(
+                label="Prob. Gain ≥15%",
+                value=f"{mc_stats['prob_gain_15']:.1f}%",
+                delta=None
+            )
+        
+        with col_mc5:
             st.metric(
                 label="Prob. de Doubler",
                 value=f"{mc_stats['prob_double']:.1f}%",
