@@ -760,12 +760,11 @@ def run_app():
         st.sidebar.markdown("---")
         st.sidebar.subheader("🎲 Paramètres Monte Carlo")
         
-        num_simulations = st.sidebar.slider(
+        num_simulations = st.sidebar.select_slider(
             "Nombre de Simulations",
-            min_value=100,
-            max_value=10000,
-            value=1000,
-            step=100,
+            options=[1000, 5000, 10000, 50000, 100000],
+            value=10000,
+            format_func=lambda x: f"{x:,}".replace(",", " "),
             help="Plus de simulations = résultats plus précis mais calcul plus long"
         )
         
