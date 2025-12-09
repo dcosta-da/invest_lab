@@ -1208,9 +1208,6 @@ def run_app():
         La simulation **Monte Carlo** utilise le rendement et la volatilité historiques pour générer 
         des milliers de trajectoires de prix possibles, permettant d'estimer la distribution 
         probabiliste des prix futurs.
-        
-        ⚠️ **Bornes appliquées** : Les scénarios extrêmes sont plafonnés à des rendements 
-        annuels composés (CAGR) de **+25%** (optimiste) et **-25%** (pessimiste).
         """)
         
         # Paramètres de la simulation dans la sidebar
@@ -1256,14 +1253,70 @@ def run_app():
         else:
             num_years = num_periods / 12
         
-        # Définir des bornes réalistes basées sur des CAGR max/min historiques
-        # CAGR max ~25-30% (performance exceptionnelle type top hedge funds)
-        # CAGR min ~-15% (scénario très négatif prolongé)
-        MAX_CAGR = 0.25  # 25% par an (très optimiste)
-        MIN_CAGR = -0.25  # -25% par an (très pessimiste)
+        # Définir des bornes DYNAMIQUES basées sur le CAGR et la volatilité historiques
+        # Calcul de la volatilité annualisée (σ scale avec √T pour le mouvement brownien)
+        # sigma_log est l'écart-type des résidus log PAR PÉRIODE (semaine ou mois)
+        # Pour annualiser : σ_annuel = σ_période × √(nb_périodes/an)
+        if period_choice == "Hebdomadaire":
+            sigma_log_annuel = sigma_log * np.sqrt(WEEKS_PER_YEAR)
+        else:
+            sigma_log_annuel = sigma_log * np.sqrt(12)
         
-        max_realistic_multiple = (1 + MAX_CAGR) ** num_years
-        min_realistic_multiple = max((1 + MIN_CAGR) ** num_years, 0.05)  # Plancher à 5% du prix
+        # CAGR observé (déjà calculé plus haut à partir de la régression sur l'historique sélectionné)
+        cagr_observe = taux_croissance_annuel / 100  # Convertir en décimal
+        
+        # Volatilité annualisée en pourcentage (directement sigma_log_annuel car c'est déjà en unités de log-rendement)
+        # Note: Pour petits σ, σ ≈ rendement%, donc on utilise directement sigma_log_annuel
+        vol_annuelle = sigma_log_annuel  # En décimal (ex: 0.25 = 25%)
+        
+        # === AJUSTEMENT DES BORNES SELON L'HORIZON ===
+        # Principe : sur des horizons longs, le mean reversion rend les CAGR extrêmes moins probables
+        # - 3 ans : bornes plus larges (CAGR extrêmes plus plausibles à court terme)
+        # - 5 ans : bornes moyennes (référence)
+        # - 10 ans : bornes plus serrées (mean reversion probable)
+        
+        horizon_adjustments = {
+            3: {"cagr_factor": 1.15, "sigma_mult": 1.8, "max_multiple": 4.0, "label": "court terme"},
+            5: {"cagr_factor": 1.00, "sigma_mult": 1.5, "max_multiple": 5.0, "label": "moyen terme"},
+            10: {"cagr_factor": 0.80, "sigma_mult": 1.2, "max_multiple": 6.0, "label": "long terme"}
+        }
+        
+        # Déterminer l'horizon en années (arrondi)
+        horizon_key = int(round(num_years))
+        if horizon_key <= 3:
+            adj = horizon_adjustments[3]
+        elif horizon_key <= 7:
+            adj = horizon_adjustments[5]
+        else:
+            adj = horizon_adjustments[10]
+        
+        # Bornes CAGR absolues ajustées selon l'horizon
+        BASE_MAX_CAGR = 0.30  # Base : 30%/an
+        BASE_MIN_CAGR = -0.30  # Base : -30%/an
+        
+        ABSOLUTE_MAX_CAGR = BASE_MAX_CAGR * adj["cagr_factor"]
+        ABSOLUTE_MIN_CAGR = BASE_MIN_CAGR * adj["cagr_factor"]
+        
+        # Plafonds sur le multiple final (ajustés selon l'horizon)
+        ABSOLUTE_MAX_MULTIPLE = adj["max_multiple"]
+        ABSOLUTE_MIN_MULTIPLE = 0.20  # Minimum 20% du prix actuel (perte max -80%)
+        
+        # Calcul des bornes dynamiques avec le multiplicateur σ ajusté
+        sigma_multiplier = adj["sigma_mult"]
+        MAX_CAGR = min(cagr_observe + sigma_multiplier * vol_annuelle, ABSOLUTE_MAX_CAGR)
+        MIN_CAGR = max(cagr_observe - sigma_multiplier * vol_annuelle, ABSOLUTE_MIN_CAGR)
+        
+        # S'assurer que MAX > MIN (cas extrêmes avec très faible volatilité)
+        if MAX_CAGR <= MIN_CAGR:
+            MAX_CAGR = cagr_observe + 0.10  # +10% minimum de marge
+            MIN_CAGR = cagr_observe - 0.10  # -10% minimum de marge
+        
+        # Calcul du multiple avec double plafonnement (CAGR ET multiple absolu)
+        max_realistic_multiple = min((1 + MAX_CAGR) ** num_years, ABSOLUTE_MAX_MULTIPLE)
+        min_realistic_multiple = max((1 + MIN_CAGR) ** num_years, ABSOLUTE_MIN_MULTIPLE)
+        
+        # Label de l'horizon pour l'affichage
+        horizon_label = adj["label"]
         
         # Récupération des paramètres du modèle de tendance
         current_price = float(y_price.iloc[-1])
@@ -1271,6 +1324,18 @@ def run_app():
         # Prix min/max réalistes
         max_realistic_price = current_price * max_realistic_multiple
         min_realistic_price = current_price * min_realistic_multiple
+        
+        # Calculer la période des données historiques pour l'affichage
+        hist_start = data.index[0].strftime('%Y-%m-%d')
+        hist_end = data.index[-1].strftime('%Y-%m-%d')
+        hist_years = (data.index[-1] - data.index[0]).days / 365.25
+        
+        # Afficher les bornes dynamiques calculées avec explications
+        st.info(f"📊 **Paramètres de simulation** | Projection: **{int(num_years)} ans** ({horizon_label}) | Historique analysé: {hist_start} → {hist_end} ({hist_years:.1f} ans)\n\n"
+                f"• **CAGR historique** = **{cagr_observe*100:+.1f}%**/an (croissance annuelle moyenne observée)\n\n"
+                f"• **Volatilité annualisée** = **{vol_annuelle*100:.1f}%**/an (dispersion des prix autour de la tendance)\n\n"
+                f"• **Bornes CAGR** = **{MIN_CAGR*100:+.1f}%** à **{MAX_CAGR*100:+.1f}%**/an | "
+                f"**Multiple** = **{min_realistic_multiple:.2f}x** à **{max_realistic_multiple:.2f}x**")
         
         # Lancer la simulation
         with st.spinner(f"Simulation de {num_simulations} trajectoires sur {selected_horizon}..."):
@@ -1452,6 +1517,95 @@ def run_app():
         
         st.plotly_chart(fig_mc, use_container_width=True)
         
+        # Explication des bornes dynamiques (après le graphique)
+        with st.expander("ℹ️ Comprendre les paramètres et bornes de la simulation"):
+            st.markdown(f"""
+            ### 📖 Glossaire des termes
+            
+            | Terme | Signification | Valeur pour cette action |
+            |-------|---------------|--------------------------|
+            | **CAGR** | *Compound Annual Growth Rate* = Taux de croissance annuel composé. Rendement annuel moyen si on avait investi au début et vendu à la fin de la période historique. | **{cagr_observe*100:+.1f}%**/an |
+            | **Volatilité annualisée** | Mesure de la dispersion des prix autour de la tendance. Plus elle est élevée, plus le prix fluctue. Calculée comme σ_période × √(périodes/an). | **{vol_annuelle*100:.1f}%**/an |
+            | **Multiple** | Ratio prix futur / prix actuel. Ex: 2x = le prix a doublé, 0.5x = le prix a été divisé par 2. | {min_realistic_multiple:.2f}x à {max_realistic_multiple:.2f}x |
+            
+            ---
+            
+            ### 📅 Données historiques utilisées
+            
+            Les paramètres de simulation (CAGR, volatilité) sont calculés sur **l'historique sélectionné** :
+            - **Période** : {hist_start} → {hist_end}
+            - **Durée** : {hist_years:.1f} ans ({len(data)} {period_label.lower()}s)
+            
+            ⚠️ Le CAGR et la volatilité reflètent le comportement **passé** de l'action. Les performances passées ne garantissent pas les performances futures.
+            
+            ---
+            
+            ### 🎯 Pourquoi des bornes sur l'affichage ?
+            
+            La simulation Monte Carlo peut générer des scénarios extrêmes (prix ×100 ou ÷100).
+            Pour un affichage réaliste, on **plafonne les valeurs affichées** tout en conservant 
+            les vraies valeurs pour les calculs de probabilité.
+            
+            ---
+            
+            ### ⏱️ Ajustement des bornes selon l'horizon de projection
+            
+            **Horizon actuel : {int(num_years)} ans ({horizon_label})**
+            
+            Les CAGR extrêmes sont moins probables sur le long terme (mean reversion) :
+            
+            | Horizon | Plafond CAGR | Mult. σ | Multiple Max |
+            |---------|--------------|---------|--------------|
+            | **3 ans** (court terme) | ±35%/an | 1.8σ | 4x |
+            | **5 ans** (moyen terme) | ±30%/an | 1.5σ | 5x |
+            | **10 ans** (long terme) | ±24%/an | 1.2σ | 6x |
+            
+            **Justification des multiplicateurs σ :**
+            
+            - **3 ans (1.8σ ≈ 93%)** : À court terme, les tendances fortes peuvent persister. Une action en momentum 
+              peut maintenir un CAGR exceptionnel pendant 2-3 ans (ex: tech en bull market). 
+              On accepte donc des scénarios plus extrêmes.
+            
+            - **5 ans (1.5σ ≈ 87%)** : Horizon de référence équilibré. La plupart des cycles économiques durent 5-7 ans. 
+              On équilibre entre tendance et mean reversion.
+            
+            - **10 ans (1.2σ ≈ 77%)** : À long terme, la **mean reversion** (retour vers la moyenne) devient 
+              dominante. Rares sont les entreprises qui maintiennent +30%/an sur 10 ans. Les rendements 
+              tendent vers la moyenne du marché (~7-10%/an). Bornes plus conservatrices.
+            
+            ---
+            
+            ### 📐 Bornes calculées pour cette action
+            
+            #### Bornes CAGR (taux de croissance annuel)
+            
+            | Paramètre | Valeur | Calcul |
+            |-----------|--------|--------|
+            | CAGR observé | {cagr_observe*100:+.1f}%/an | Pente de la régression log-linéaire, annualisée |
+            | Volatilité annualisée | {vol_annuelle*100:.1f}%/an | σ_période × √({multiplier}) |
+            | Multiplicateur σ | {sigma_multiplier}σ | Ajusté selon l'horizon ({horizon_label}) |
+            | **CAGR Max** | **{MAX_CAGR*100:+.1f}%/an** | min(CAGR + {sigma_multiplier}×Vol, {ABSOLUTE_MAX_CAGR*100:+.0f}%) |
+            | **CAGR Min** | **{MIN_CAGR*100:+.1f}%/an** | max(CAGR − {sigma_multiplier}×Vol, {ABSOLUTE_MIN_CAGR*100:+.0f}%) |
+            
+            #### Bornes sur le Multiple Final (prix futur / prix actuel)
+            
+            | Paramètre | Valeur | Calcul |
+            |-----------|--------|--------|
+            | **Multiple Max** | **{max_realistic_multiple:.2f}x** | min((1+CAGR_max)^{int(num_years)}, {ABSOLUTE_MAX_MULTIPLE:.0f}x) |
+            | **Multiple Min** | **{min_realistic_multiple:.2f}x** | max((1+CAGR_min)^{int(num_years)}, 0.20x) |
+            
+            ---
+            
+            ### 📊 Impact des bornes sur l'affichage
+            
+            | Élément | Bornes appliquées ? | Détail |
+            |---------|---------------------|--------|
+            | Prix P25, P50, P75 (cartes) | ✅ Oui | Valeurs plafonnées pour l'affichage |
+            | Graphique des trajectoires | ✅ Oui | Axe Y limité aux bornes |
+            | Probabilités (gain, perte, doubler) | ❌ Non | Calcul sur valeurs brutes (exact) |
+            | Histogramme de distribution | ❌ Non | Valeurs brutes, filtré P5-P95 |
+            """)
+        
         # --- CARTES SCÉNARIOS DE PRIX (juste après le graphique MC) ---
         st.markdown("### 📋 Scénarios de Prix Projetés (Intervalle 50%)")
         
@@ -1460,7 +1614,7 @@ def run_app():
         p50_raw = mc_stats['median_final']
         p75_raw = mc_stats['percentile_75']
         
-        # Appliquer les bornes réalistes (CAGR +25%/-25%) pour l'affichage
+        # Appliquer les bornes réalistes dynamiques pour l'affichage
         p25_display = max(p25_raw, min_realistic_price)
         p50_display = min(max(p50_raw, min_realistic_price), max_realistic_price)  # Plafonner aussi P50
         p75_display = min(p75_raw, max_realistic_price)
@@ -1724,9 +1878,15 @@ def run_app():
             $E[\\ln(S_{{t+1}}/S_t)]$. Dans la théorie GBM, cela correspond à $(\\mu - \\sigma^2/2)$ où $\\mu$ 
             est le rendement instantané. Nous utilisons directement cette valeur observée sans ajustement.
             
-            ### Bornes appliquées (affichage uniquement):
+            ### Bornes dynamiques appliquées (affichage uniquement):
             Pour éviter les scénarios extrêmes, les valeurs **affichées** dans les cartes sont plafonnées.
             Les calculs de probabilités utilisent les vraies valeurs de simulation.
+            
+            **Double plafonnement (ajusté selon l'horizon: {horizon_label}):**
+            - CAGR Max = min(CAGR + {sigma_multiplier}×Vol, **{ABSOLUTE_MAX_CAGR*100:+.0f}%**/an) = **{MAX_CAGR*100:+.1f}%**/an
+            - CAGR Min = max(CAGR − {sigma_multiplier}×Vol, **{ABSOLUTE_MIN_CAGR*100:+.0f}%**/an) = **{MIN_CAGR*100:+.1f}%**/an
+            - Multiple Max = **{max_realistic_multiple:.2f}x** (plafonné à {ABSOLUTE_MAX_MULTIPLE:.0f}x)
+            - Multiple Min = **{min_realistic_multiple:.2f}x** (plancher à 0.20x)
             
             | Percentile | Interprétation |
             |------------|----------------|
