@@ -621,7 +621,7 @@ def run_app():
                     label="Beta (β)",
                     value="N/A",
                     help="Le beta n'est pas disponible pour cette action."
-                )
+            )
 
         st.markdown("---")
 
@@ -811,7 +811,7 @@ def run_app():
                     - **Entreprise B** : Volume élevé, marges faibles
                     
                     L'analyse DuPont révèle **comment** le ROE est généré, pas seulement sa valeur !
-                    """)
+                """)
                 
             elif dupont_results and 'error' in dupont_results:
                 st.info(f"Analyse DuPont (ROE LTM) non disponible: {dupont_results['error']}")
@@ -956,7 +956,7 @@ def run_app():
                     | Industrie | 8-12% | >15% |
                     | Utilities | 5-8% | >10% |
                     | Airlines | 2-6% | >10% (rare) |
-                    """)
+                """)
                 
             elif roic_results and 'error' in roic_results:
                     st.info(f"Analyse ROIC (LTM) non disponible: {roic_results['error']}")
@@ -1203,7 +1203,6 @@ def run_app():
 
         # --- NOUVELLE SECTION : SIMULATION MONTE CARLO ---
         st.markdown("---")
-        st.markdown("<h2 style='text-align: center;'>🎲 Simulation Monte Carlo - Projection des Prix</h2>", unsafe_allow_html=True)
         
         st.markdown("""
         La simulation **Monte Carlo** utilise le rendement et la volatilité historiques pour générer 
@@ -1211,7 +1210,7 @@ def run_app():
         probabiliste des prix futurs.
         
         ⚠️ **Bornes appliquées** : Les scénarios extrêmes sont plafonnés à des rendements 
-        annuels composés (CAGR) de **+50%** (optimiste) et **-50%** (pessimiste).
+        annuels composés (CAGR) de **+25%** (optimiste) et **-25%** (pessimiste).
         """)
         
         # Paramètres de la simulation dans la sidebar
@@ -1229,14 +1228,12 @@ def run_app():
         # Horizon de projection (1, 3, 5, 10 ans uniquement)
         if period_choice == "Hebdomadaire":
             horizon_options = {
-                "1 an (~52 semaines)": 52,
                 "3 ans (~156 semaines)": 156,
                 "5 ans (~260 semaines)": 260,
                 "10 ans (~520 semaines)": 520
             }
         else:
             horizon_options = {
-                "1 an (12 mois)": 12,
                 "3 ans (36 mois)": 36,
                 "5 ans (60 mois)": 60,
                 "10 ans (120 mois)": 120
@@ -1245,8 +1242,11 @@ def run_app():
         selected_horizon = st.sidebar.selectbox(
             "Horizon de Projection",
             options=list(horizon_options.keys()),
-            index=0  # Par défaut: 1 an
+            index=1  # Par défaut: 5 ans
         )
+        
+        # Afficher le titre avec l'horizon sélectionné
+        st.markdown(f"<h2 style='text-align: center;'>🎲 Simulation Monte Carlo - Projection à {selected_horizon.split(' (')[0]}</h2>", unsafe_allow_html=True)
         
         num_periods = horizon_options[selected_horizon]
         
@@ -1259,8 +1259,8 @@ def run_app():
         # Définir des bornes réalistes basées sur des CAGR max/min historiques
         # CAGR max ~25-30% (performance exceptionnelle type top hedge funds)
         # CAGR min ~-15% (scénario très négatif prolongé)
-        MAX_CAGR = 0.50  # 50% par an (très optimiste)
-        MIN_CAGR = -0.50  # -50% par an (très pessimiste)
+        MAX_CAGR = 0.25  # 25% par an (très optimiste)
+        MIN_CAGR = -0.25  # -25% par an (très pessimiste)
         
         max_realistic_multiple = (1 + MAX_CAGR) ** num_years
         min_realistic_multiple = max((1 + MIN_CAGR) ** num_years, 0.05)  # Plancher à 5% du prix
@@ -1453,46 +1453,71 @@ def run_app():
         st.plotly_chart(fig_mc, use_container_width=True)
         
         # --- CARTES SCÉNARIOS DE PRIX (juste après le graphique MC) ---
-        st.markdown("#### 📋 Scénarios de Prix Projetés (Intervalle 50%)")
+        st.markdown("### 📋 Scénarios de Prix Projetés (Intervalle 50%)")
         
         # Valeurs brutes des percentiles
         p25_raw = mc_stats['percentile_25']
         p50_raw = mc_stats['median_final']
         p75_raw = mc_stats['percentile_75']
         
-        # Calcul des rendements pour les cartes
-        p25_ret_card = ((p25_raw / current_price) - 1) * 100
-        p50_ret_card = ((p50_raw / current_price) - 1) * 100
-        p75_ret_card = ((p75_raw / current_price) - 1) * 100
+        # Appliquer les bornes réalistes (CAGR +25%/-25%) pour l'affichage
+        p25_display = max(p25_raw, min_realistic_price)
+        p50_display = min(max(p50_raw, min_realistic_price), max_realistic_price)  # Plafonner aussi P50
+        p75_display = min(p75_raw, max_realistic_price)
+        
+        # Détecter si des valeurs sont plafonnées
+        p25_capped = p25_raw < min_realistic_price
+        p50_capped = p50_raw > max_realistic_price or p50_raw < min_realistic_price
+        p75_capped = p75_raw > max_realistic_price
+        
+        # Calcul des rendements pour les cartes (avec valeurs plafonnées)
+        p25_ret_card = ((p25_display / current_price) - 1) * 100
+        p50_ret_card = ((p50_display / current_price) - 1) * 100
+        p75_ret_card = ((p75_display / current_price) - 1) * 100
         
         col_card1, col_card2, col_card3 = st.columns(3)
         
         with col_card1:
+            cap_note_p25 = " ⚠️" if p25_capped else ""
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%); padding: 15px; border-radius: 10px; text-align: center;">
-                <h4 style="color: #c62828; margin: 0;">🔴 Pessimiste (P25)</h4>
-                <h2 style="margin: 10px 0;">{p25_raw:.2f} {currency}</h2>
+                <h4 style="color: #c62828; margin: 0;">🔴 Pessimiste (P25){cap_note_p25}</h4>
+                <h2 style="margin: 10px 0;">{p25_display:.2f} {currency}</h2>
                 <p style="margin: 0; color: #c62828; font-weight: bold;">{p25_ret_card:+.1f}%</p>
             </div>
             """, unsafe_allow_html=True)
         
         with col_card2:
+            cap_note_p50 = " ⚠️" if p50_capped else ""
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); padding: 15px; border-radius: 10px; text-align: center;">
-                <h4 style="color: #1565c0; margin: 0;">🔵 Médiane (P50)</h4>
-                <h2 style="margin: 10px 0;">{p50_raw:.2f} {currency}</h2>
+                <h4 style="color: #1565c0; margin: 0;">🔵 Médiane (P50){cap_note_p50}</h4>
+                <h2 style="margin: 10px 0;">{p50_display:.2f} {currency}</h2>
                 <p style="margin: 0; color: #1565c0; font-weight: bold;">{p50_ret_card:+.1f}%</p>
             </div>
             """, unsafe_allow_html=True)
         
         with col_card3:
+            cap_note_p75 = " ⚠️" if p75_capped else ""
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); padding: 15px; border-radius: 10px; text-align: center;">
-                <h4 style="color: #2e7d32; margin: 0;">🟢 Optimiste (P75)</h4>
-                <h2 style="margin: 10px 0;">{p75_raw:.2f} {currency}</h2>
+                <h4 style="color: #2e7d32; margin: 0;">🟢 Optimiste (P75){cap_note_p75}</h4>
+                <h2 style="margin: 10px 0;">{p75_display:.2f} {currency}</h2>
                 <p style="margin: 0; color: #2e7d32; font-weight: bold;">{p75_ret_card:+.1f}%</p>
             </div>
             """, unsafe_allow_html=True)
+        
+        # Note explicative si des valeurs sont plafonnées
+        if p25_capped or p50_capped or p75_capped:
+            raw_values = []
+            if p25_capped:
+                raw_values.append(f"P25={p25_raw:.2f}")
+            if p50_capped:
+                raw_values.append(f"P50={p50_raw:.2f}")
+            if p75_capped:
+                raw_values.append(f"P75={p75_raw:.2f}")
+            st.caption(f"⚠️ Valeurs plafonnées aux bornes réalistes (CAGR {MIN_CAGR*100:+.0f}% à {MAX_CAGR*100:+.0f}%/an). "
+                      f"Valeurs brutes: {', '.join(raw_values)}")
         
         st.caption(f"💡 Prix actuel: {current_price:.2f} {currency} | Probabilité de gain: {mc_stats['prob_gain']:.0f}%")
         
@@ -1502,18 +1527,17 @@ def run_app():
         col_mc1, col_mc2, col_mc3, col_mc4, col_mc5 = st.columns(5)
         
         with col_mc1:
-            rendement_median = ((mc_stats['median_final'] / current_price) - 1) * 100
             st.metric(
                 label=f"Prix Médian à {selected_horizon}",
-                value=f"{mc_stats['median_final']:.2f} {currency}",
-                delta=f"{rendement_median:+.1f}%"
+                value=f"{p50_display:.2f} {currency}",
+                delta=f"{p50_ret_card:+.1f}%" + (" ⚠️" if p50_capped else "")
             )
         
         with col_mc2:
             st.metric(
                 label="Intervalle 50% (P25-P75)",
-                value=f"{mc_stats['percentile_25']:.2f} - {mc_stats['percentile_75']:.2f}",
-                delta=None
+                value=f"{p25_display:.2f} - {p75_display:.2f}",
+                delta="⚠️ plafonné" if (p25_capped or p75_capped) else None
             )
         
         with col_mc3:
@@ -1544,21 +1568,24 @@ def run_app():
         col_table1, col_table2 = st.columns(2)
         
         with col_table1:
+            # Appliquer les bornes réalistes au tableau
+            p10_table = max(mc_stats['percentile_10'], min_realistic_price)
+            p25_table = max(mc_stats['percentile_25'], min_realistic_price)
+            p75_table = min(mc_stats['percentile_75'], max_realistic_price)
+            
             percentile_data = pd.DataFrame({
-                'Percentile': ['10% (Pessimiste)', '25%', '50% (Médiane)', '75%', '90% (Optimiste)'],
+                'Percentile': ['10%', '25% (Pessimiste)', '50% (Médiane)', '75% (Optimiste)'],
                 f'Prix ({currency})': [
-                    f"{mc_stats['percentile_10']:.2f}",
-                    f"{mc_stats['percentile_25']:.2f}",
-                    f"{mc_stats['median_final']:.2f}",
-                    f"{mc_stats['percentile_75']:.2f}",
-                    f"{mc_stats['percentile_90']:.2f}"
+                    f"{p10_table:.2f}",
+                    f"{p25_table:.2f}",
+                    f"{p50_display:.2f}",
+                    f"{p75_table:.2f}"
                 ],
                 'Rendement': [
-                    f"{((mc_stats['percentile_10'] / current_price) - 1) * 100:+.1f}%",
-                    f"{((mc_stats['percentile_25'] / current_price) - 1) * 100:+.1f}%",
-                    f"{((mc_stats['median_final'] / current_price) - 1) * 100:+.1f}%",
-                    f"{((mc_stats['percentile_75'] / current_price) - 1) * 100:+.1f}%",
-                    f"{((mc_stats['percentile_90'] / current_price) - 1) * 100:+.1f}%"
+                    f"{((p10_table / current_price) - 1) * 100:+.1f}%",
+                    f"{((p25_table / current_price) - 1) * 100:+.1f}%",
+                    f"{p50_ret_card:+.1f}%",
+                    f"{((p75_table / current_price) - 1) * 100:+.1f}%"
                 ]
             })
             st.dataframe(percentile_data, use_container_width=True, hide_index=True)
@@ -1571,143 +1598,82 @@ def run_app():
             - **P75 (Optimiste)**: 25% des simulations dépassent ce prix
             
             *L'intervalle 50% (P25-P75) représente la fourchette où tombent 
-            la moitié des simulations - plus actionnable que P10-P90.*
+            la moitié des simulations.*
             """)
         
-        # === HISTOGRAMME SIMPLIFIÉ ===
-        st.markdown("### 📊 Distribution des Résultats à l'Horizon")
+        # === HISTOGRAMME FILTRÉ P5-P95 POUR LISIBILITÉ ===
+        st.markdown("### 📊 Distribution des Résultats")
         
         final_prices_all = price_paths[-1, :]
         
-        # Calcul des rendements en %
-        returns_all = ((final_prices_all / current_price) - 1) * 100
+        # Filtrer P5-P95 pour exclure les 10% extrêmes (5% de chaque côté)
+        p5_price = np.percentile(final_prices_all, 5)
+        p95_price = np.percentile(final_prices_all, 95)
+        prices_filtered = final_prices_all[(final_prices_all >= p5_price) & (final_prices_all <= p95_price)]
+        pct_shown = len(prices_filtered) / len(final_prices_all) * 100
         
-        # Percentiles clés
-        p25_ret = ((mc_stats['percentile_25'] / current_price) - 1) * 100
-        p50_ret = ((mc_stats['median_final'] / current_price) - 1) * 100
-        p75_ret = ((mc_stats['percentile_75'] / current_price) - 1) * 100
+        # Percentiles bruts pour les lignes
+        p25_hist = mc_stats['percentile_25']
+        p50_hist = mc_stats['median_final']
+        p75_hist = mc_stats['percentile_75']
         
-        # Filtrer P10-P90 pour un affichage compact (garder 80% des données pour visualisation)
-        p10_val = np.percentile(returns_all, 10)
-        p90_val = np.percentile(returns_all, 90)
-        returns_filtered = returns_all[(returns_all >= p10_val) & (returns_all <= p90_val)]
+        # Rendements correspondants
+        p25_ret_hist = ((p25_hist / current_price) - 1) * 100
+        p50_ret_hist = ((p50_hist / current_price) - 1) * 100
+        p75_ret_hist = ((p75_hist / current_price) - 1) * 100
         
-        # Filtrer les prix P10-P90
-        p10_price_val = np.percentile(final_prices_all, 10)
-        p90_price_val = np.percentile(final_prices_all, 90)
-        prices_filtered = final_prices_all[(final_prices_all >= p10_price_val) & (final_prices_all <= p90_price_val)]
+        # --- HISTOGRAMME FILTRÉ ---
+        fig_hist = go.Figure()
         
-        # --- HISTOGRAMME 1: DISTRIBUTION DES PRIX ---
-        fig_hist_price = go.Figure()
-        
-        fig_hist_price.add_trace(go.Histogram(
+        # Histogramme des prix (P5-P95)
+        fig_hist.add_trace(go.Histogram(
             x=prices_filtered,
-            nbinsx=35,
-            name='Simulations (P10-P90)',
-            marker_color='rgba(46, 204, 113, 0.7)',
-            marker_line_color='rgba(46, 204, 113, 1)',
-            marker_line_width=1
-        ))
-        
-        # Lignes de référence avec légende
-        fig_hist_price.add_trace(go.Scatter(
-            x=[current_price, current_price], y=[0, 0], mode='lines',
-            name=f'🟡 Prix actuel: {current_price:.2f} {currency}',
-            line=dict(color='#F39C12', width=3, dash='solid')
-        ))
-        fig_hist_price.add_vline(x=current_price, line_dash="solid", line_color="#F39C12", line_width=3)
-        
-        fig_hist_price.add_trace(go.Scatter(
-            x=[mc_stats['percentile_25'], mc_stats['percentile_25']], y=[0, 0], mode='lines',
-            name=f'🔴 P25: {mc_stats["percentile_25"]:.2f} {currency}',
-            line=dict(color='#E74C3C', width=2, dash='dot')
-        ))
-        fig_hist_price.add_vline(x=mc_stats['percentile_25'], line_dash="dot", line_color="#E74C3C", line_width=2)
-        
-        fig_hist_price.add_trace(go.Scatter(
-            x=[mc_stats['median_final'], mc_stats['median_final']], y=[0, 0], mode='lines',
-            name=f'🔵 P50: {mc_stats["median_final"]:.2f} {currency}',
-            line=dict(color='#2980B9', width=2, dash='dash')
-        ))
-        fig_hist_price.add_vline(x=mc_stats['median_final'], line_dash="dash", line_color="#2980B9", line_width=2)
-        
-        fig_hist_price.add_trace(go.Scatter(
-            x=[mc_stats['percentile_75'], mc_stats['percentile_75']], y=[0, 0], mode='lines',
-            name=f'🟢 P75: {mc_stats["percentile_75"]:.2f} {currency}',
-            line=dict(color='#27AE60', width=2, dash='dot')
-        ))
-        fig_hist_price.add_vline(x=mc_stats['percentile_75'], line_dash="dot", line_color="#27AE60", line_width=2)
-        
-        fig_hist_price.update_layout(
-            title=f'Distribution des Prix à {selected_horizon}',
-            xaxis_title=f"Prix ({currency})",
-            yaxis_title="Nombre de simulations",
-            template="plotly_white",
-            height=380,
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="center",
-                x=0.5,
-                bgcolor="rgba(255,255,255,0.9)"
-            ),
-            margin=dict(t=70, b=50)
-        )
-        
-        margin_price = (p90_price_val - p10_price_val) * 0.15
-        fig_hist_price.update_xaxes(range=[p10_price_val - margin_price, p90_price_val + margin_price])
-        
-        st.plotly_chart(fig_hist_price, use_container_width=True)
-        
-        # --- HISTOGRAMME 2: DISTRIBUTION DES RENDEMENTS ---
-        fig_hist_ret = go.Figure()
-        
-        fig_hist_ret.add_trace(go.Histogram(
-            x=returns_filtered,
-            nbinsx=35,
-            name='Simulations (P10-P90)',
+            nbinsx=50,
+            name=f'Simulations (P5-P95)',
             marker_color='rgba(52, 152, 219, 0.7)',
             marker_line_color='rgba(52, 152, 219, 1)',
             marker_line_width=1
         ))
         
         # Lignes de référence avec légende
-        fig_hist_ret.add_trace(go.Scatter(
-            x=[0, 0], y=[0, 0], mode='lines',
-            name=f'🟡 Breakeven: 0%',
-            line=dict(color='#F39C12', width=3, dash='solid')
+        # Prix actuel
+        fig_hist.add_trace(go.Scatter(
+            x=[current_price, current_price], y=[0, 0], mode='lines',
+            name=f'🟡 Actuel: {current_price:.2f} {currency}',
+            line=dict(color='#F39C12', width=3)
         ))
-        fig_hist_ret.add_vline(x=0, line_dash="solid", line_color="#F39C12", line_width=3)
+        fig_hist.add_vline(x=current_price, line_dash="solid", line_color="#F39C12", line_width=3)
         
-        fig_hist_ret.add_trace(go.Scatter(
-            x=[p25_ret, p25_ret], y=[0, 0], mode='lines',
-            name=f'🔴 P25: {p25_ret:+.1f}%',
+        # P25 (Pessimiste)
+        fig_hist.add_trace(go.Scatter(
+            x=[p25_hist, p25_hist], y=[0, 0], mode='lines',
+            name=f'🔴 P25: {p25_hist:.2f} ({p25_ret_hist:+.1f}%)',
             line=dict(color='#E74C3C', width=2, dash='dot')
         ))
-        fig_hist_ret.add_vline(x=p25_ret, line_dash="dot", line_color="#E74C3C", line_width=2)
+        fig_hist.add_vline(x=p25_hist, line_dash="dot", line_color="#E74C3C", line_width=2)
         
-        fig_hist_ret.add_trace(go.Scatter(
-            x=[p50_ret, p50_ret], y=[0, 0], mode='lines',
-            name=f'🔵 P50: {p50_ret:+.1f}%',
+        # P50 (Médiane)
+        fig_hist.add_trace(go.Scatter(
+            x=[p50_hist, p50_hist], y=[0, 0], mode='lines',
+            name=f'🔵 P50: {p50_hist:.2f} ({p50_ret_hist:+.1f}%)',
             line=dict(color='#2980B9', width=2, dash='dash')
         ))
-        fig_hist_ret.add_vline(x=p50_ret, line_dash="dash", line_color="#2980B9", line_width=2)
+        fig_hist.add_vline(x=p50_hist, line_dash="dash", line_color="#2980B9", line_width=2)
         
-        fig_hist_ret.add_trace(go.Scatter(
-            x=[p75_ret, p75_ret], y=[0, 0], mode='lines',
-            name=f'🟢 P75: {p75_ret:+.1f}%',
+        # P75 (Optimiste)
+        fig_hist.add_trace(go.Scatter(
+            x=[p75_hist, p75_hist], y=[0, 0], mode='lines',
+            name=f'🟢 P75: {p75_hist:.2f} ({p75_ret_hist:+.1f}%)',
             line=dict(color='#27AE60', width=2, dash='dot')
         ))
-        fig_hist_ret.add_vline(x=p75_ret, line_dash="dot", line_color="#27AE60", line_width=2)
+        fig_hist.add_vline(x=p75_hist, line_dash="dot", line_color="#27AE60", line_width=2)
         
-        fig_hist_ret.update_layout(
-            title=f'Distribution des Rendements à {selected_horizon}',
-            xaxis_title="Rendement (%)",
+        fig_hist.update_layout(
+            title=f'Distribution des Prix à {selected_horizon} ({pct_shown:.0f}% des simulations, P5-P95)',
+            xaxis_title=f"Prix Final ({currency})",
             yaxis_title="Nombre de simulations",
             template="plotly_white",
-            height=380,
+            height=420,
             showlegend=True,
             legend=dict(
                 orientation="h",
@@ -1717,13 +1683,14 @@ def run_app():
                 x=0.5,
                 bgcolor="rgba(255,255,255,0.9)"
             ),
-            margin=dict(t=70, b=50)
+            margin=dict(t=80, b=50)
         )
         
-        margin_ret = (p90_val - p10_val) * 0.15
-        fig_hist_ret.update_xaxes(range=[p10_val - margin_ret, p90_val + margin_ret], ticksuffix="%")
+        # Ajuster la plage X au P5-P95
+        margin_price = (p95_price - p5_price) * 0.05
+        fig_hist.update_xaxes(range=[p5_price - margin_price, p95_price + margin_price])
         
-        st.plotly_chart(fig_hist_ret, use_container_width=True)
+        st.plotly_chart(fig_hist, use_container_width=True)
         
         # Explication de la méthodologie
         with st.expander("📚 Méthodologie de la Simulation Monte Carlo"):
