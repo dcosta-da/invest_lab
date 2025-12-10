@@ -1222,7 +1222,27 @@ def run_app():
             help="Plus de simulations = résultats plus précis mais calcul plus long"
         )
         
-        # Horizon de projection (1, 3, 5, 10 ans uniquement)
+        # Choix de la période d'historique pour le calcul du CAGR/Volatilité
+        hist_period_options = {
+            "Tout l'historique disponible": None,
+            "10 dernières années": 10,
+            "5 dernières années": 5,
+            "3 dernières années": 3,
+            "Aligné sur l'horizon de projection": "aligned"
+        }
+        
+        selected_hist_period = st.sidebar.selectbox(
+            "Période d'historique pour CAGR/Vol.",
+            options=list(hist_period_options.keys()),
+            index=0,  # Par défaut: tout l'historique
+            help="Période de données historiques utilisée pour estimer le CAGR et la volatilité. "
+                 "Une période plus courte reflète mieux les conditions récentes, "
+                 "une période plus longue est statistiquement plus robuste."
+        )
+        
+        hist_period_value = hist_period_options[selected_hist_period]
+        
+        # Horizon de projection (3, 5, 10 ans)
         if period_choice == "Hebdomadaire":
             horizon_options = {
                 "3 ans (~156 semaines)": 156,
@@ -1253,21 +1273,71 @@ def run_app():
         else:
             num_years = num_periods / 12
         
-        # Définir des bornes DYNAMIQUES basées sur le CAGR et la volatilité historiques
-        # Calcul de la volatilité annualisée (σ scale avec √T pour le mouvement brownien)
-        # sigma_log est l'écart-type des résidus log PAR PÉRIODE (semaine ou mois)
-        # Pour annualiser : σ_annuel = σ_période × √(nb_périodes/an)
-        if period_choice == "Hebdomadaire":
-            sigma_log_annuel = sigma_log * np.sqrt(WEEKS_PER_YEAR)
+        # === FILTRER LES DONNÉES SELON LA PÉRIODE D'HISTORIQUE CHOISIE ===
+        # Déterminer la période d'historique à utiliser pour le calcul CAGR/Vol
+        if hist_period_value == "aligned":
+            # Aligné sur l'horizon de projection
+            hist_years_to_use = num_years
+        elif hist_period_value is None:
+            # Tout l'historique
+            hist_years_to_use = None
         else:
-            sigma_log_annuel = sigma_log * np.sqrt(12)
+            # Nombre d'années spécifique (3, 5, 10)
+            hist_years_to_use = hist_period_value
         
-        # CAGR observé (déjà calculé plus haut à partir de la régression sur l'historique sélectionné)
-        cagr_observe = taux_croissance_annuel / 100  # Convertir en décimal
+        # Filtrer les données pour la période choisie
+        if hist_years_to_use is not None:
+            # Calculer la date de début pour la période choisie
+            end_date_mc = data.index[-1]
+            if period_choice == "Hebdomadaire":
+                periods_to_use = int(hist_years_to_use * WEEKS_PER_YEAR)
+            else:
+                periods_to_use = int(hist_years_to_use * 12)
+            
+            # S'assurer qu'on a assez de données
+            if periods_to_use >= len(data):
+                data_mc = data.copy()
+                hist_period_label = f"tout l'historique ({len(data)} {period_label.lower()}s)"
+            else:
+                data_mc = data.iloc[-periods_to_use:].copy()
+                hist_period_label = f"{hist_years_to_use:.0f} dernières années"
+        else:
+            data_mc = data.copy()
+            hist_period_label = "tout l'historique"
         
-        # Volatilité annualisée en pourcentage (directement sigma_log_annuel car c'est déjà en unités de log-rendement)
-        # Note: Pour petits σ, σ ≈ rendement%, donc on utilise directement sigma_log_annuel
-        vol_annuelle = sigma_log_annuel  # En décimal (ex: 0.25 = 25%)
+        # Recalculer CAGR et volatilité sur la période filtrée
+        data_mc['Periods_MC'] = np.arange(len(data_mc))
+        data_mc['Log_Close_MC'] = np.log(data_mc['Close'])
+        
+        X_mc = data_mc[['Periods_MC']]
+        y_log_mc = data_mc['Log_Close_MC'].squeeze()
+        
+        model_log_mc = LinearRegression()
+        model_log_mc.fit(X_mc, y_log_mc)
+        
+        data_mc['Predicted_Log_MC'] = model_log_mc.predict(X_mc)
+        data_mc['Log_Residuals_MC'] = y_log_mc - data_mc['Predicted_Log_MC']
+        
+        # Paramètres pour la simulation Monte Carlo
+        sigma_log_mc = data_mc['Log_Residuals_MC'].std()
+        pente_log_periode_mc = model_log_mc.coef_[0]
+        
+        # Volatilité annualisée
+        if period_choice == "Hebdomadaire":
+            sigma_log_annuel = sigma_log_mc * np.sqrt(WEEKS_PER_YEAR)
+        else:
+            sigma_log_annuel = sigma_log_mc * np.sqrt(12)
+        
+        # CAGR observé sur la période filtrée
+        if period_choice == "Hebdomadaire":
+            pente_log_annuelle_mc = pente_log_periode_mc * WEEKS_PER_YEAR
+        else:
+            pente_log_annuelle_mc = pente_log_periode_mc * 12
+        
+        cagr_observe = np.exp(pente_log_annuelle_mc) - 1  # En décimal
+        
+        # Volatilité annualisée en décimal
+        vol_annuelle = sigma_log_annuel
         
         # === AJUSTEMENT DES BORNES SELON L'HORIZON ===
         # Principe : sur des horizons longs, le mean reversion rend les CAGR extrêmes moins probables
@@ -1325,24 +1395,25 @@ def run_app():
         max_realistic_price = current_price * max_realistic_multiple
         min_realistic_price = current_price * min_realistic_multiple
         
-        # Calculer la période des données historiques pour l'affichage
-        hist_start = data.index[0].strftime('%Y-%m-%d')
-        hist_end = data.index[-1].strftime('%Y-%m-%d')
-        hist_years = (data.index[-1] - data.index[0]).days / 365.25
+        # Calculer la période des données historiques FILTRÉES pour l'affichage
+        hist_start = data_mc.index[0].strftime('%Y-%m-%d')
+        hist_end = data_mc.index[-1].strftime('%Y-%m-%d')
+        hist_years = (data_mc.index[-1] - data_mc.index[0]).days / 365.25
         
         # Afficher les bornes dynamiques calculées avec explications
-        st.info(f"📊 **Paramètres de simulation** | Projection: **{int(num_years)} ans** ({horizon_label}) | Historique analysé: {hist_start} → {hist_end} ({hist_years:.1f} ans)\n\n"
+        st.info(f"📊 **Paramètres de simulation** | Projection: **{int(num_years)} ans** ({horizon_label}) | "
+                f"Historique utilisé: **{hist_period_label}** ({hist_start} → {hist_end}, {hist_years:.1f} ans)\n\n"
                 f"• **CAGR historique** = **{cagr_observe*100:+.1f}%**/an (croissance annuelle moyenne observée)\n\n"
                 f"• **Volatilité annualisée** = **{vol_annuelle*100:.1f}%**/an (dispersion des prix autour de la tendance)\n\n"
                 f"• **Bornes CAGR** = **{MIN_CAGR*100:+.1f}%** à **{MAX_CAGR*100:+.1f}%**/an | "
                 f"**Multiple** = **{min_realistic_multiple:.2f}x** à **{max_realistic_multiple:.2f}x**")
         
-        # Lancer la simulation
+        # Lancer la simulation Monte Carlo (GBM)
         with st.spinner(f"Simulation de {num_simulations} trajectoires sur {selected_horizon}..."):
             price_paths = run_monte_carlo_simulation(
                 initial_price=current_price,
-                expected_return_period=pente_log_periode,
-                volatility_period=sigma_log,
+                expected_return_period=pente_log_periode_mc,
+                volatility_period=sigma_log_mc,
                 num_simulations=num_simulations,
                 num_periods=num_periods
             )
@@ -1532,9 +1603,11 @@ def run_app():
             
             ### 📅 Données historiques utilisées
             
-            Les paramètres de simulation (CAGR, volatilité) sont calculés sur **l'historique sélectionné** :
+            Les paramètres de simulation (CAGR, volatilité) sont calculés sur **{hist_period_label}** :
             - **Période** : {hist_start} → {hist_end}
-            - **Durée** : {hist_years:.1f} ans ({len(data)} {period_label.lower()}s)
+            - **Durée** : {hist_years:.1f} ans ({len(data_mc)} {period_label.lower()}s)
+            
+            💡 Vous pouvez modifier la période d'historique dans la sidebar (paramètre "Période d'historique pour CAGR/Vol.").
             
             ⚠️ Le CAGR et la volatilité reflètent le comportement **passé** de l'action. Les performances passées ne garantissent pas les performances futures.
             
@@ -1849,7 +1922,7 @@ def run_app():
         # Explication de la méthodologie
         with st.expander("📚 Méthodologie de la Simulation Monte Carlo"):
             st.markdown(f"""
-            ### Comment fonctionne cette simulation ?
+            ### Modèle : GBM (Mouvement Brownien Géométrique)
             
             La simulation utilise le **Mouvement Brownien Géométrique (GBM)**, le modèle standard 
             en finance pour modéliser l'évolution des prix d'actifs :
@@ -1858,47 +1931,45 @@ def run_app():
             
             Ce qui équivaut à : $S_{{t+1}} = S_t \\times e^{{\\text{{drift}} + \\sigma \\cdot Z}}$
             
-            Où:
+            Où :
             - $S_t$ = Prix au temps t
-            - $\\text{{drift}}$ = Rendement log attendu par période, issu de la régression (estimé: **{pente_log_periode*100:.4f}%** par {period_label.lower()})
-            - $\\sigma$ = Volatilité des résidus log (estimée: **{sigma_log*100:.4f}%** par {period_label.lower()})
-            - $Z$ = Variable aléatoire normale standard $\\mathcal{{N}}(0, 1)$
+            - $\\text{{drift}}$ = Rendement log attendu par période
+            - $\\sigma$ = Volatilité (constante)
+            - $Z$ = Choc aléatoire $\\mathcal{{N}}(0, 1)$
             
-            ### Paramètres utilisés:
+            ### Paramètres utilisés :
             | Paramètre | Valeur | Source |
             |-----------|--------|--------|
             | Prix initial | {current_price:.2f} {currency} | Dernier prix de clôture |
-            | Drift (rendement log) | {pente_log_periode*100:.4f}% / {period_label.lower()} | Pente de la régression log-linéaire |
-            | Volatilité (σ) | {sigma_log*100:.4f}% / {period_label.lower()} | Écart-type des résidus log |
+            | Drift | {pente_log_periode_mc*100:.4f}%/{period_label.lower()} | Régression sur {hist_period_label} |
+            | Volatilité (σ) | {sigma_log_mc*100:.4f}%/{period_label.lower()} | Écart-type résidus |
             | Nombre de simulations | {num_simulations:,} | Paramètre utilisateur |
             | Horizon | {num_periods} {period_label.lower()}s | Paramètre utilisateur |
+            | Période historique | {hist_period_label} ({hist_years:.1f} ans) | Paramètre utilisateur |
             
-            ### Note technique:
-            Le drift utilisé est directement la pente de la régression log-linéaire, qui représente 
-            $E[\\ln(S_{{t+1}}/S_t)]$. Dans la théorie GBM, cela correspond à $(\\mu - \\sigma^2/2)$ où $\\mu$ 
-            est le rendement instantané. Nous utilisons directement cette valeur observée sans ajustement.
+            ### Avantages du GBM :
+            - ✅ Simple et interprétable
+            - ✅ Stable sur longs horizons
+            - ✅ Standard de l'industrie (Black-Scholes)
             
-            ### Bornes dynamiques appliquées (affichage uniquement):
-            Pour éviter les scénarios extrêmes, les valeurs **affichées** dans les cartes sont plafonnées.
-            Les calculs de probabilités utilisent les vraies valeurs de simulation.
+            ### Limites du modèle :
+            - ⚠️ Volatilité supposée constante dans le temps
+            - ⚠️ Ne capture pas le volatility clustering
+            - ⚠️ Suppose que les rendements futurs suivent la même distribution que les rendements passés
             
-            **Double plafonnement (ajusté selon l'horizon: {horizon_label}):**
-            - CAGR Max = min(CAGR + {sigma_multiplier}×Vol, **{ABSOLUTE_MAX_CAGR*100:+.0f}%**/an) = **{MAX_CAGR*100:+.1f}%**/an
-            - CAGR Min = max(CAGR − {sigma_multiplier}×Vol, **{ABSOLUTE_MIN_CAGR*100:+.0f}%**/an) = **{MIN_CAGR*100:+.1f}%**/an
-            - Multiple Max = **{max_realistic_multiple:.2f}x** (plafonné à {ABSOLUTE_MAX_MULTIPLE:.0f}x)
-            - Multiple Min = **{min_realistic_multiple:.2f}x** (plancher à 0.20x)
+            ---
+            ### Bornes dynamiques appliquées (affichage uniquement)
+            
+            Pour éviter les scénarios extrêmes, les valeurs **affichées** sont plafonnées.
+            Les calculs de probabilités utilisent les vraies valeurs.
+            
+            **Horizon: {horizon_label}** | CAGR: [{MIN_CAGR*100:+.0f}%, {MAX_CAGR*100:+.0f}%] | Multiple: [{min_realistic_multiple:.2f}x, {max_realistic_multiple:.2f}x]
             
             | Percentile | Interprétation |
             |------------|----------------|
             | P25 (Pessimiste) | 75% des simulations sont au-dessus |
             | P50 (Médiane) | 50% au-dessus / 50% en-dessous |
             | P75 (Optimiste) | 25% des simulations sont au-dessus |
-            
-            ### Limites du modèle:
-            - Suppose que les rendements futurs suivent la même distribution que les rendements passés
-            - Ne prend pas en compte les événements extrêmes (cygnes noirs)
-            - La volatilité est supposée constante dans le temps
-            - Le modèle GBM suppose des rendements log-normaux (distribution symétrique en log)
             """)
 
     except Exception as e:
